@@ -233,7 +233,7 @@ func _test_save() -> void:
 	server.handle_request("admin", _req("set", "zombie", "extra.sound.growl", "low \"mean\""))
 	var r := server.handle_request("admin", _req("save", "zombie"))
 	_check(r.ok, "saved")
-	var file: String = BASE.path_join("server/npc/zombie.yml")
+	var file: String = BASE.path_join("server/game/mygame/npc/zombie.yml")
 	var parsed := DotYaml.parse_file(file)
 	_check(parsed.ok and (parsed.value as Dictionary).keys().size() == 5, "five keys, not the whole profile")
 	_check(not (parsed.value as Dictionary).has("speed") and not (parsed.value as Dictionary).has("boss"), "unedited keys are absent")

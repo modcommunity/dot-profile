@@ -6,8 +6,8 @@ extends Node
 ## godot --headless --path . res://examples/user_tier_selftest.tscn
 ## [/codeblock]
 
-const SECTIONS := 6
-const CHECKS := 34
+const SECTIONS := 7
+const CHECKS := 38
 const BASE := "user://user_tier_selftest"
 
 var _passed := 0
@@ -25,6 +25,7 @@ func _ready() -> void:
 	_test_write()
 	_test_reset()
 	_test_listing()
+	_test_server_mirror()
 	_clean()
 	DotProfileSet.set_user_tier(false)
 	_line("")
@@ -186,3 +187,18 @@ func _check(condition: bool, what: String) -> void:
 
 func _line(text: String) -> void:
 	print(text)
+
+
+func _test_server_mirror() -> void:
+	_section("Server tier: mirrored layout, old folder shimmed")
+	_seed()
+	DotCfgLegacy.reset()
+	DotProfileSet.set_user_tier(false)
+	var s := _mk()
+	_check(s.load_profile("orc").value.get_value("speed") == 1.5, "the old server/<kind>/ is still read")
+	_check(DotCfgLegacy.warned_count() == 1, "with one warning")
+	_w("server/addons/dot-npc/npc/orc.yml", "speed: 2.5\n")
+	_check(_mk().load_profile("orc").value.get_value("speed") == 2.5, "server/addons/<addon>/ wins over the old folder")
+	_w("server/game/mygame/npc/orc.yml", "speed: 3.5\n")
+	_check(_mk().load_profile("orc").value.get_value("speed") == 3.5, "server/game/<game>/ is strongest")
+	DotCfgLegacy.reset()

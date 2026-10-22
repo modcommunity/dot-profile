@@ -6,7 +6,7 @@ extends RefCounted
 ## One file per profile, `<kind>/<id>.yml`, or a folder `<kind>/<id>/<id>.yml` (or
 ## `profile.yml`) that may hold child sets (`<kind>/<id>/upgrades/<child>.yml`). Tiers, weakest
 ## first: schema defaults < addon (`cfg/addons/<addon>/`) < game (`cfg/game/<game>/`) < server
-## (`cfg/server/`) < environment < command line. A weaker tier's file may be overridden by a
+## (`cfg/server/addons/<addon>/`, then `cfg/server/game/<game>/`; the old `cfg/server/<kind>/` is shimmed) < environment < command line. A weaker tier's file may be overridden by a
 ## few keys of a stronger one. A player's `user` tier sits between game and server, on only in a
 ## solo or listen-host process. See docs/profiles.md.
 
@@ -313,11 +313,36 @@ func _tier_dirs(rel: String = "") -> Dictionary:
 			cands[TIER_ADDON] = root.path_join("addons").path_join(addon_name).path_join(rel)
 		if game != "":
 			cands[TIER_GAME] = root.path_join("game").path_join(game).path_join(rel)
-		cands[TIER_SERVER] = root.path_join("server").path_join(rel)
 		for tier in cands:
 			if DirAccess.dir_exists_absolute(cands[tier]):
 				out[tier].append(cands[tier])
+		# Operator layers, weakest first: the pre-mirror folder, then addon, then game.
+		var legacy := root.path_join("server").path_join(rel)
+		var mirrored := PackedStringArray()
+		if addon_name != "":
+			mirrored.append(root.path_join("server/addons").path_join(addon_name).path_join(rel))
+		if game != "":
+			mirrored.append(root.path_join("server/game").path_join(game).path_join(rel))
+		if DirAccess.dir_exists_absolute(legacy):
+			out[TIER_SERVER].append(legacy)
+			_legacy_new[legacy] = mirrored[0] if not mirrored.is_empty() else ""
+		for d in mirrored:
+			if DirAccess.dir_exists_absolute(d):
+				out[TIER_SERVER].append(d)
 	return out
+
+
+## Legacy server dir -> its mirrored counterpart (empty when the set has no addon or game).
+var _legacy_new: Dictionary = {}
+
+
+## False when [param p] sits in a pre-mirror `cfg/server/<kind>/` and [DotCfgLegacy] says not to read it.
+func _legacy_ok(dir: String, p: String) -> bool:
+	if not _legacy_new.has(dir):
+		return true
+	var new_dir: String = _legacy_new[dir]
+	var newp := new_dir.path_join(p.trim_prefix(dir + "/")) if new_dir != "" else ""
+	return DotCfgLegacy.find(p, newp) == p
 
 
 ## [{path, tier}] for [param id], weakest first.
@@ -327,7 +352,7 @@ func _files_for(id: String) -> Array:
 	for tier in [TIER_ADDON, TIER_GAME, TIER_USER, TIER_SERVER]:
 		for d in tiers[tier]:
 			for p in [d.path_join(id + "." + EXTENSION), d.path_join(id).path_join(id + "." + EXTENSION), d.path_join(id).path_join(FOLDER_FILE + "." + EXTENSION)]:
-				if FileAccess.file_exists(p):
+				if FileAccess.file_exists(p) and _legacy_ok(d, p):
 					out.append({"path": p, "tier": tier})
 	return out
 

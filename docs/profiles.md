@@ -11,9 +11,9 @@ Two tiers with the same shape, a user tier and a server tier:
 | addon | `cfg/addons/<addon_name>/<kind>/<id>.yml` | the addon's defaults |
 | game | `cfg/game/<game>/<kind>/<id>.yml` | the game, overriding a few keys or adding profiles |
 | user | `user://cfg/user/<kind>/<id>.yml` | the player, in a solo or listen-host game only (below) |
-| server | `cfg/server/<kind>/<id>.yml` | the operator |
+| server | `cfg/server/addons/<addon_name>/<kind>/<id>.yml`, then `cfg/server/game/<game>/<kind>/<id>.yml` (strongest) | the operator |
 
-Each tier is looked up under every config root, weakest first (`res://cfg`, next to the executable, `user://cfg`, `--config DIR`), as [addon-config.md](addon-config.md). Precedence, weakest first: schema defaults < addon < game < user < server < environment < command line. A game file may hold only the keys it changes. Works from `res://` (packs) and `user://`; exports need `cfg/*` in the preset's `include_filter`.
+The old `cfg/server/<kind>/<id>.yml` is still read, under the mirrored files, through `DotCfgLegacy` with one WARN per file (removal 2026-12-31); when the mirrored file for the same id exists it wins whole. Each tier is looked up under every config root, weakest first (`res://cfg`, next to the executable, `user://cfg`, `--config DIR`), as [addon-config.md](addon-config.md). Precedence, weakest first: schema defaults < addon < game < user < server < environment < command line. A game file may hold only the keys it changes. Works from `res://` (packs) and `user://`; exports need `cfg/*` in the preset's `include_filter`.
 
 A profile may be a folder: `<kind>/<id>/<id>.yml` (or `profile.yml`) with child sets beside it, such as `weapon/pistol/upgrades/scope.yml`. Children are loaded lazily, each set with its own schema and its own `extends`, and see the same three tiers.
 
@@ -45,7 +45,7 @@ var ups := res.value.child_set("upgrades", [DotProfileSet.field("cost", "int", 0
 
 ## Checking files without a game: `profile_check`
 
-`godot --headless --path . --script addons/dot_core/tools/profile_check.gd -- <repo> [--schema <script>] [--skip-unknown]` loads every profile under `cfg/addons/*`, `cfg/game/*` and `cfg/server/*` through `DotProfileSet` and prints one `path: message` per problem (unknown key, wrong type, out of range, NaN or infinity, missing or cyclic `extends`, malformed yml), plus duplicate ids, `.yaml` files, folder profiles without their own file and child folders without a schema. Exit 1 on any problem. Schemas live in code: `weapon` (with `upgrades`) and `npc` are built in when the project links dot-weapon or dot-npc, and a project's own kinds come from `--schema`, a script with `static func profile_schemas() -> Dictionary` (kind to a field array, or `{"schema": [...], "children": {name: [...]}}`). dot-ci runs it with `profiles: true`. `examples/profile_check_selftest`.
+`godot --headless --path . --script addons/dot_core/tools/profile_check.gd -- <repo> [--schema <script>] [--skip-unknown]` loads every profile under `cfg/addons/*`, `cfg/game/*`, `cfg/server/addons/*`, `cfg/server/game/*` and the old `cfg/server/<kind>` through `DotProfileSet` and prints one `path: message` per problem (unknown key, wrong type, out of range, NaN or infinity, missing or cyclic `extends`, malformed yml), plus duplicate ids, `.yaml` files, folder profiles without their own file and child folders without a schema. Exit 1 on any problem. Schemas live in code: `weapon` (with `upgrades`) and `npc` are built in when the project links dot-weapon or dot-npc, and a project's own kinds come from `--schema`, a script with `static func profile_schemas() -> Dictionary` (kind to a field array, or `{"schema": [...], "children": {name: [...]}}`). dot-ci runs it with `profiles: true`. `examples/profile_check_selftest`.
 
 ## The user tier: a player's own mod layer
 
@@ -72,7 +72,7 @@ rt.apply_row(row)                                      # applies only a newer re
 | `set` | dotted path: a schema key, `stats.armor` into a `dict` field, `extra.a.b` | the new value | validated, applied, revision + 1 |
 | `reset_key` | the path | | drops that runtime value |
 | `reset` | | | drops the profile's whole runtime layer |
-| `save` | | | writes `<save_root>/server/<kind>/<id>.yml` with the runtime keys (merged into that file if it exists; other keys stay), then the file is the server tier |
+| `save` | | | writes `<save_root>/server/game/<game>/<kind>/<id>.yml` (`server/addons/<addon>/...` for a set with no game, `server/<kind>/...` with neither) with the runtime keys (merged into that file if it exists; other keys stay), then the file is the server tier |
 
 - **Permission**: `permit(actor, flag)`; unset denies everything. `edit_flag` (default `cvar`) for edit and reset, `save_flag` (default `root`, it writes disk) for save, both `DotAdminFlags` names in dot-server. Denied is `CODE_FORBIDDEN`.
 - **Validation** is the schema's: type, `min`/`max`, `enum`, plus NaN and infinity refused anywhere in the value (also now in file values), unknown keys, secret-named keys (`CODE_FORBIDDEN`), unknown profile, kind or op. All `CODE_INVALID`. After applying, the profile is reloaded; if it no longer loads the layer is rolled back. An edit that changes nothing returns `{"changed": false}` and bumps nothing.
@@ -84,5 +84,5 @@ rt.apply_row(row)                                      # applies only a newer re
 ## How the adopters would use it (not done yet)
 
 - **DotNpcDef (dot-npc)**: its exported fields become the schema (`health`, `speed`, ...); `DotNpcDef.from_profile(DotProfile)` fills the resource, `extra:` carries behaviour-specific keys. dot-npc would own addon defaults in `cfg/addons/dot-npc/npc/`, a game ships `cfg/game/<game>/npc/zombie.yml` with the few keys it changes, and spawn tables list `set.list_ids()`.
-- **Weapons (dot-weapon and packs)**: a weapon is a folder `weapon/<id>/<id>.yml` with `upgrades/<upgrade>.yml` children; the weapon config's fields are the schema, a variant is `extends: base_pistol`, and a pack's own keys sit under `extra:`. Server operators retune with `cfg/server/weapon/<id>.yml` or `PROFILE_WEAPON_<ID>_DAMAGE`.
+- **Weapons (dot-weapon and packs)**: a weapon is a folder `weapon/<id>/<id>.yml` with `upgrades/<upgrade>.yml` children; the weapon config's fields are the schema, a variant is `extends: base_pistol`, and a pack's own keys sit under `extra:`. Server operators retune with `cfg/server/addons/<addon>/weapon/<id>.yml` or `cfg/server/game/<game>/weapon/<id>.yml` or `PROFILE_WEAPON_<ID>_DAMAGE`.
 - **Classes (dot-player-class)**: kind `class`, same shape.
