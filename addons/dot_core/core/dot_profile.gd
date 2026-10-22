@@ -19,6 +19,8 @@ var overrides := PackedStringArray()
 var refused := PackedStringArray()
 ## Dotted paths the runtime (admin edit) layer sets on this profile, sorted; empty when unedited.
 var runtime_keys := PackedStringArray()
+## Dotted paths the files (any tier, and every profile it extends) set, sorted; a schema default is not listed.
+var file_keys := PackedStringArray()
 ## The set that loaded this profile; held weakly, so the set's cache and its profiles do not
 ## keep each other alive. Null once the set is freed.
 var set_ref: DotProfileSet:
@@ -73,6 +75,8 @@ func describe_lines() -> PackedStringArray:
 		out.append("  override %s" % o)
 	for r in refused:
 		out.append("  refused %s" % r)
+	if not file_keys.is_empty():
+		out.append("  file keys set: %s" % ", ".join(file_keys))
 	if not runtime_keys.is_empty():
 		out.append("  runtime keys set: %s" % ", ".join(runtime_keys))
 	return out

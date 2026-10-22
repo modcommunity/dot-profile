@@ -411,6 +411,16 @@ func _raw(id: String, visiting: PackedStringArray) -> DotResult:
 	return DotResult.success({"data": merged, "sources": sources, "chain": chain})
 
 
+## Dotted leaf paths of [param d] (dictionaries descended, arrays and scalars are leaves).
+static func _flat_keys(d: Dictionary, prefix: String, out: PackedStringArray) -> void:
+	for k in d:
+		var path := "%s%s" % [prefix, k]
+		if d[k] is Dictionary and not (d[k] as Dictionary).is_empty():
+			_flat_keys(d[k], path + ".", out)
+		else:
+			out.append(path)
+
+
 func _load(id: String) -> DotResult:
 	var raw := _raw(id, PackedStringArray())
 	if not raw.ok:
@@ -478,6 +488,10 @@ func _load(id: String) -> DotResult:
 	var rt_keys := PackedStringArray((runtime.get(id, {}) as Dictionary).keys())
 	rt_keys.sort()
 	p.runtime_keys = rt_keys
+	var fk := PackedStringArray()
+	_flat_keys(data, "", fk)
+	fk.sort()
+	p.file_keys = fk
 	DotLog.debug(CHANNEL, "loaded", {"kind": rel_path, "id": id, "files": p.sources.size(), "overrides": overrides.size()})
 	return DotResult.success(p)
 

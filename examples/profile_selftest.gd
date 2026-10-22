@@ -7,7 +7,7 @@ extends Node
 ## [/codeblock]
 
 const SECTIONS := 10
-const CHECKS := 76
+const CHECKS := 78
 const BASE := "user://profile_selftest"
 
 var _passed := 0
@@ -157,6 +157,10 @@ func _test_merge() -> void:
 	_check(r.value.get_extra("ai.sight") == 20 and r.value.get_extra("ai.hear") == 4, "extra merges deeply too")
 	var b := _mk().load_profile("base")
 	_check(b.value.get_value("stats") == {"str": 5, "dex": 3}, "the parent is not mutated")
+	_check(list_eq(r.value.file_keys, ["extra.ai.hear", "extra.ai.sight", "loot", "stats.dex", "stats.str"]), "file_keys lists file-set leaf paths, through extends")
+	_addon("npc/lone.yml", "health: 50\n")
+	var lone: DotProfile = _mk().load_profile("lone").value
+	_check(list_eq(lone.file_keys, ["health"]) and lone.describe().contains("file keys set: health"), "a schema default is not a file key")
 
 
 func _test_tiers() -> void:
