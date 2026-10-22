@@ -74,6 +74,7 @@ static func field(p_name: String, type: String, default: Variant = null, opts: D
 ## Turns the user tier on for a solo or listen-host process, off for a server or a connected client.
 static func set_user_tier(enabled: bool) -> void:
 	user_tier_enabled = enabled
+	DotAddonConfig.user_tier_enabled = enabled
 
 
 ## Config roots, weakest first: `res://cfg`, next to the executable, `user://cfg`, `--config DIR`.
