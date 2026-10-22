@@ -355,7 +355,7 @@ func _raw(id: String, visiting: PackedStringArray) -> DotResult:
 			continue
 		if not (res.value is Dictionary):
 			return _fail(DotError.CODE_PARSE, id, "%s must hold a mapping at the top level" % f["path"])
-		DotAddonConfig._merge(merged, res.value as Dictionary)
+		DotAddonConfig.merge(merged, res.value as Dictionary)
 		sources.append("%s: %s" % [f["tier"], f["path"]])
 	var chain := PackedStringArray([id])
 	var parent: Variant = merged.get(EXTENDS_KEY, "")
@@ -370,7 +370,7 @@ func _raw(id: String, visiting: PackedStringArray) -> DotResult:
 		if not up.ok:
 			return up.wrap("%s/%s extends %s" % [rel_path, id, parent])
 		var base: Dictionary = (up.value["data"] as Dictionary).duplicate(true)
-		DotAddonConfig._merge(base, merged)
+		DotAddonConfig.merge(base, merged)
 		merged = base
 		chain.append_array(up.value["chain"])
 		sources = up.value["sources"] + sources
