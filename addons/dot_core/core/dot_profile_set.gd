@@ -1,0 +1,371 @@
+class_name DotProfileSet
+extends RefCounted
+
+## A directory of per-entity profiles (NPCs, weapons, classes): lists, loads and validates them.
+##
+## One file per profile, `<kind>/<id>.yml`, or a folder `<kind>/<id>/<id>.yml` (or
+## `profile.yml`) that may hold child sets (`<kind>/<id>/upgrades/<child>.yml`). Tiers, weakest
+## first: schema defaults < addon (`cfg/addons/<addon>/`) < game (`cfg/game/<game>/`) < server
+## (`cfg/server/`) < environment < command line. A weaker tier's file may be overridden by a
+## few keys of a stronger one. See docs/profiles.md.
+
+const CHANNEL := "profile"
+const EXTENSION := "yml"
+const FOLDER_FILE := "profile"
+## Top-level key that holds keys the schema does not know; passed through untouched.
+const EXTRA_KEY := "extra"
+const EXTENDS_KEY := "extends"
+const TIER_ADDON := "addon"
+const TIER_GAME := "game"
+const TIER_SERVER := "server"
+
+## Owning addon (`cfg/addons/<addon>/`), empty to skip the addon tier.
+var addon_name := ""
+## Game id (`cfg/game/<game>/`), empty to skip the game tier.
+var game := ""
+## Path below the tier directory: `npc`, `weapon`, or `weapon/pistol/upgrades` for a child set.
+var rel_path := ""
+## Fields built with [method field].
+var schema: Array = []
+## Unknown top-level keys fail when true; put them under `extra:` instead.
+var strict := true
+## Names that environment and command line may never set, on top of the secret words.
+var sensitive := PackedStringArray()
+## Prefix for environment (`PROFILE_NPC_ZOMBIE_HEALTH`) and command line (`--profile.npc/zombie.health=5`).
+var override_prefix := "profile"
+## Config roots, weakest first. Empty means [method default_roots].
+var roots := PackedStringArray()
+## Command-line arguments to read overrides from; empty means the process's own.
+var cmdline := PackedStringArray()
+
+var _cache: Dictionary = {}
+
+
+## Builds a set for [param p_rel_path] (a singular kind such as `npc`) and its [param p_schema].
+static func create(p_addon: String, p_game: String, p_rel_path: String, p_schema: Array = []) -> DotProfileSet:
+	var s := DotProfileSet.new()
+	s.addon_name = p_addon
+	s.game = p_game
+	s.rel_path = p_rel_path
+	s.schema = p_schema
+	return s
+
+
+## One schema entry. [param opts] may hold `min`, `max`, `enum` (Array) and `required` (bool).
+## [param type] is int, float, string, bool, list, dict or any.
+static func field(p_name: String, type: String, default: Variant = null, opts: Dictionary = {}) -> Dictionary:
+	var d := {"name": p_name, "type": type, "default": default}
+	d.merge(opts, true)
+	return d
+
+
+## Config roots, weakest first: `res://cfg`, next to the executable, `user://cfg`, `--config DIR`.
+static func default_roots() -> PackedStringArray:
+	var out := PackedStringArray(["res://cfg"])
+	var exe := OS.get_executable_path().get_base_dir()
+	if exe != "":
+		out.append(exe.path_join("cfg"))
+	out.append("user://cfg")
+	var given := DotAddonConfig._config_dir_arg()
+	if given != "":
+		out.append(given)
+	return out
+
+
+## Ids found on disk across all tiers, sorted; no file is opened.
+func list_ids() -> PackedStringArray:
+	var seen := {}
+	for dir in _tier_dirs().values():
+		for d in dir:
+			for f in DirAccess.get_files_at(d):
+				if f.get_extension().to_lower() == EXTENSION:
+					seen[f.get_basename()] = true
+			for sub in DirAccess.get_directories_at(d):
+				if FileAccess.file_exists(d.path_join(sub).path_join(sub + "." + EXTENSION)) \
+						or FileAccess.file_exists(d.path_join(sub).path_join(FOLDER_FILE + "." + EXTENSION)):
+					seen[sub] = true
+	var out := PackedStringArray(seen.keys())
+	out.sort()
+	return out
+
+
+## True when some tier has a file for [param id].
+func has_id(id: String) -> bool:
+	return _id_ok(id) and not _files_for(id).is_empty()
+
+
+## Loads, extends-resolves, overrides and validates one profile. Value: a [DotProfile].
+func load_profile(id: String) -> DotResult:
+	if _cache.has(id):
+		return DotResult.success(_cache[id])
+	var res := _load(id)
+	if res.ok:
+		_cache[id] = res.value
+	return res
+
+
+## Forgets loaded profiles so the next load reads the files again.
+func clear_cache() -> void:
+	_cache.clear()
+
+
+## The set below profile [param id]: `<rel>/<id>/<child_kind>`, with its own schema.
+func child_set(id: String, child_kind: String, child_schema: Array = []) -> DotProfileSet:
+	var s := DotProfileSet.create(addon_name, game, rel_path.path_join(id).path_join(child_kind), child_schema)
+	s.strict = strict
+	s.sensitive = sensitive
+	s.override_prefix = override_prefix
+	s.roots = roots
+	s.cmdline = cmdline
+	return s
+
+
+## Names of the sub-folders of profile [param id] (its child kinds), sorted.
+func child_kinds(id: String) -> PackedStringArray:
+	var seen := {}
+	for dirs in _tier_dirs(rel_path.path_join(id)).values():
+		for d in dirs:
+			for sub in DirAccess.get_directories_at(d):
+				seen[sub] = true
+	var out := PackedStringArray(seen.keys())
+	out.sort()
+	return out
+
+
+func describe() -> String:
+	return "\n".join(describe_lines())
+
+
+func describe_lines() -> PackedStringArray:
+	var out := PackedStringArray(["DotProfileSet %s (addon '%s', game '%s', %d fields, strict %s)" % [rel_path, addon_name, game, schema.size(), strict]])
+	for tier in _tier_dirs():
+		for d in _tier_dirs()[tier]:
+			out.append("  %s: %s" % [tier, d])
+	return out
+
+
+# --- Internals -------------------------------------------------------------
+
+func _id_ok(id: String) -> bool:
+	return not (id.strip_edges().is_empty() or id.contains("/") or id.contains("\\") or id.contains(":") or id.contains(".."))
+
+
+func _roots() -> PackedStringArray:
+	return roots if not roots.is_empty() else default_roots()
+
+
+## tier -> existing directories for [param rel], weakest root first.
+func _tier_dirs(rel: String = "") -> Dictionary:
+	if rel == "":
+		rel = rel_path
+	var out := {TIER_ADDON: [], TIER_GAME: [], TIER_SERVER: []}
+	for root in _roots():
+		var cands := {}
+		if addon_name != "":
+			cands[TIER_ADDON] = root.path_join("addons").path_join(addon_name).path_join(rel)
+		if game != "":
+			cands[TIER_GAME] = root.path_join("game").path_join(game).path_join(rel)
+		cands[TIER_SERVER] = root.path_join("server").path_join(rel)
+		for tier in cands:
+			if DirAccess.dir_exists_absolute(cands[tier]):
+				out[tier].append(cands[tier])
+	return out
+
+
+## [{path, tier}] for [param id], weakest first.
+func _files_for(id: String) -> Array:
+	var out: Array = []
+	var tiers := _tier_dirs()
+	for tier in [TIER_ADDON, TIER_GAME, TIER_SERVER]:
+		for d in tiers[tier]:
+			for p in [d.path_join(id + "." + EXTENSION), d.path_join(id).path_join(id + "." + EXTENSION), d.path_join(id).path_join(FOLDER_FILE + "." + EXTENSION)]:
+				if FileAccess.file_exists(p):
+					out.append({"path": p, "tier": tier})
+	return out
+
+
+func _fail(code: String, id: String, msg: String) -> DotResult:
+	DotLog.error(CHANNEL, "profile failed", {"kind": rel_path, "id": id, "why": msg})
+	return DotResult.fail(code, "%s/%s: %s" % [rel_path, id, msg])
+
+
+## File-level resolution: tiers merged, then over its parent. {data, sources, chain}.
+func _raw(id: String, visiting: PackedStringArray) -> DotResult:
+	if not _id_ok(id):
+		return _fail(DotError.CODE_INVALID, id, "bad profile id")
+	var files := _files_for(id)
+	if files.is_empty():
+		return _fail(DotError.CODE_INVALID, id, "no such profile")
+	var merged := {}
+	var sources := PackedStringArray()
+	for f in files:
+		var res := DotYaml.parse_file(f["path"])
+		if not res.ok:
+			DotLog.error(CHANNEL, "bad profile file", {"file": f["path"]})
+			return res.wrap("profile file %s" % f["path"])
+		if res.value == null:
+			continue
+		if not (res.value is Dictionary):
+			return _fail(DotError.CODE_PARSE, id, "%s must hold a mapping at the top level" % f["path"])
+		DotAddonConfig._merge(merged, res.value as Dictionary)
+		sources.append("%s: %s" % [f["tier"], f["path"]])
+	var chain := PackedStringArray([id])
+	var parent: Variant = merged.get(EXTENDS_KEY, "")
+	merged.erase(EXTENDS_KEY)
+	if not (parent is String):
+		return _fail(DotError.CODE_INVALID, id, "extends must be a profile id")
+	if parent != "":
+		var trail := visiting + PackedStringArray([id])
+		if trail.has(parent):
+			return _fail(DotError.CODE_INVALID, id, "extends cycle: %s" % " -> ".join(trail + PackedStringArray([parent])))
+		var up := _raw(parent, trail)
+		if not up.ok:
+			return up.wrap("%s/%s extends %s" % [rel_path, id, parent])
+		var base: Dictionary = (up.value["data"] as Dictionary).duplicate(true)
+		DotAddonConfig._merge(base, merged)
+		merged = base
+		chain.append_array(up.value["chain"])
+		sources = up.value["sources"] + sources
+	return DotResult.success({"data": merged, "sources": sources, "chain": chain})
+
+
+func _load(id: String) -> DotResult:
+	var raw := _raw(id, PackedStringArray())
+	if not raw.ok:
+		return raw
+	var data: Dictionary = raw.value["data"]
+	var errors := PackedStringArray()
+	var values := {}
+	var names := {}
+	for f in schema:
+		names[f["name"]] = f
+	var extra: Variant = data.get(EXTRA_KEY, {})
+	if not (extra is Dictionary):
+		errors.append("'%s' must be a mapping" % EXTRA_KEY)
+		extra = {}
+	if strict:
+		for k in data:
+			if k != EXTRA_KEY and not names.has(k):
+				errors.append("unknown key '%s' (put it under '%s:')" % [k, EXTRA_KEY])
+	var overrides := PackedStringArray()
+	var refused := PackedStringArray()
+	var supplied := {}
+	for k in names:
+		supplied[k] = data.has(k)
+	for k in names:
+		var f: Dictionary = names[k]
+		var v: Variant = data[k] if data.has(k) else f.get("default")
+		if v is Dictionary or v is Array:
+			v = v.duplicate(true)
+		var o := _override(id, k, f, v, overrides, refused)
+		if o != null:
+			v = o["value"]
+			supplied[k] = true
+		values[k] = v
+	for k in names:
+		var f: Dictionary = names[k]
+		if f.get("required", false) and not supplied[k]:
+			errors.append("%s: required" % k)
+			continue
+		var checked := _check_field(f, values[k])
+		if checked.has("error"):
+			errors.append("%s: %s" % [k, checked["error"]])
+		else:
+			values[k] = checked["value"]
+	if not errors.is_empty():
+		return _fail(DotError.CODE_INVALID, id, "; ".join(errors))
+	var p := DotProfile.new()
+	p.id = id
+	p.set_ref = self
+	p.values = values
+	p.extra = (extra as Dictionary).duplicate(true)
+	p.chain = raw.value["chain"]
+	p.sources = raw.value["sources"]
+	p.overrides = overrides
+	p.refused = refused
+	DotLog.debug(CHANNEL, "loaded", {"kind": rel_path, "id": id, "files": p.sources.size(), "overrides": overrides.size()})
+	return DotResult.success(p)
+
+
+## {value} when environment or command line set [param key], else null.
+func _override(id: String, key: String, f: Dictionary, current: Variant, overrides: PackedStringArray, refused: PackedStringArray) -> Variant:
+	if f["type"] == "dict":
+		return null
+	var env_name := ("%s_%s_%s_%s" % [override_prefix, rel_path, id, key]).to_upper().replace("-", "_").replace(".", "_").replace("/", "_")
+	var cli := "--%s.%s/%s.%s" % [override_prefix, rel_path, id, key]
+	var raw: Variant = null
+	var from := ""
+	if OS.has_environment(env_name):
+		raw = OS.get_environment(env_name)
+		from = "env " + env_name
+	var argv := cmdline if not cmdline.is_empty() else OS.get_cmdline_user_args() + OS.get_cmdline_args()
+	for i in argv.size():
+		var a: String = argv[i]
+		if a.begins_with(cli + "="):
+			raw = a.substr(cli.length() + 1)
+			from = "cli " + cli
+		elif a == cli and i + 1 < argv.size() and not String(argv[i + 1]).begins_with("--"):
+			raw = argv[i + 1]
+			from = "cli " + cli
+	if raw == null:
+		return null
+	if DotAddonConfig._is_sensitive(key, sensitive):
+		refused.append("%s (%s)" % [key, from])
+		DotLog.warn(CHANNEL, "secret refused from environment/argv", {"kind": rel_path, "id": id, "key": key})
+		return null
+	var proto: Variant = current
+	if proto == null:
+		proto = {"int": 0, "float": 0.0, "string": "", "bool": false, "list": []}.get(f["type"])
+	var coerced: Variant = DotAddonConfig._coerce(str(raw), proto)
+	if coerced == null:
+		DotLog.warn(CHANNEL, "override has the wrong type", {"kind": rel_path, "id": id, "key": key, "from": from})
+		return null
+	overrides.append("%s <- %s" % [key, from])
+	return {"value": coerced}
+
+
+## {value} or {error} after type, enum and range checks.
+func _check_field(f: Dictionary, v: Variant) -> Dictionary:
+	var t: String = f["type"]
+	var out: Variant = v
+	if v == null and not f.get("required", false) and f.get("default") == null:
+		return {"value": null}
+	match t:
+		"int":
+			if v is int:
+				out = v
+			elif v is float and is_finite(v) and v == floorf(v):
+				out = int(v)
+			else:
+				return {"error": "expected int, got %s" % str(v)}
+		"float":
+			if v is int or v is float:
+				out = float(v)
+			else:
+				return {"error": "expected float, got %s" % str(v)}
+		"string":
+			if v is String or v is StringName:
+				out = String(v)
+			else:
+				return {"error": "expected string, got %s" % str(v)}
+		"bool":
+			if not (v is bool):
+				return {"error": "expected bool, got %s" % str(v)}
+		"list":
+			if not (v is Array):
+				return {"error": "expected list, got %s" % str(v)}
+		"dict":
+			if not (v is Dictionary):
+				return {"error": "expected mapping, got %s" % str(v)}
+		"any":
+			pass
+		_:
+			return {"error": "schema type '%s' is unknown" % t}
+	if t == "int" or t == "float":
+		if f.has("min") and out < f["min"]:
+			return {"error": "%s is below min %s" % [str(out), str(f["min"])]}
+		if f.has("max") and out > f["max"]:
+			return {"error": "%s is above max %s" % [str(out), str(f["max"])]}
+	if f.has("enum") and not (f["enum"] as Array).has(out):
+		return {"error": "%s is not one of %s" % [str(out), str(f["enum"])]}
+	return {"value": out}
