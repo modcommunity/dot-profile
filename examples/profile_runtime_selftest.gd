@@ -7,7 +7,7 @@ extends Node
 ## [/codeblock]
 
 const SECTIONS := 9
-const CHECKS := 65
+const CHECKS := 68
 const BASE := "user://profile_runtime_selftest"
 
 var _passed := 0
@@ -121,6 +121,10 @@ func _test_edit() -> void:
 	server.profile_changed.connect(func(k: String, i: String, r: int) -> void: seen.append([k, i, r]))
 	server.handle_request("admin", _req("set", "zombie", "mode", "ranged"))
 	_check(seen == [["npc", "zombie", 3]], "profile_changed(kind, id, revision) fired")
+	var zp: DotProfile = w["ss"].load_profile("zombie").value
+	_check(zp.runtime_keys == PackedStringArray(["health", "mode", "speed"]), "runtime_keys lists the edited paths, sorted")
+	_check(zp.describe().contains("runtime keys set: health, mode, speed"), "describe shows the runtime keys")
+	_check((w["ss"].load_profile("ghoul").value as DotProfile).runtime_keys.is_empty(), "an unedited profile has no runtime keys")
 	var again := server.handle_request("admin", _req("set", "zombie", "mode", "ranged"))
 	_check(again.ok and again.value["changed"] == false and server.revision("npc", "zombie") == 3, "an identical edit is a no-op")
 

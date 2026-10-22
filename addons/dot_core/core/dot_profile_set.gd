@@ -475,6 +475,9 @@ func _load(id: String) -> DotResult:
 	p.sources = raw.value["sources"]
 	p.overrides = overrides
 	p.refused = refused
+	var rt_keys := PackedStringArray((runtime.get(id, {}) as Dictionary).keys())
+	rt_keys.sort()
+	p.runtime_keys = rt_keys
 	DotLog.debug(CHANNEL, "loaded", {"kind": rel_path, "id": id, "files": p.sources.size(), "overrides": overrides.size()})
 	return DotResult.success(p)
 
