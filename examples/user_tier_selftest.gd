@@ -7,7 +7,7 @@ extends Node
 ## [/codeblock]
 
 const SECTIONS := 7
-const CHECKS := 38
+const CHECKS := 40
 const BASE := "user://user_tier_selftest"
 
 var _passed := 0
@@ -201,4 +201,11 @@ func _test_server_mirror() -> void:
 	_check(_mk().load_profile("orc").value.get_value("speed") == 2.5, "server/addons/<addon>/ wins over the old folder")
 	_w("server/game/mygame/npc/orc.yml", "speed: 3.5\n")
 	_check(_mk().load_profile("orc").value.get_value("speed") == 3.5, "server/game/<game>/ is strongest")
+	_clean()
+	_w("server/npc/orc.yml", "speed: 4.5\n")
+	DotCfgLegacy.reset()
+	var bare := DotProfileSet.create("", "", "npc", [DotProfileSet.field("speed", "float", 3.0)])
+	bare.roots = PackedStringArray([BASE])
+	_check(bare.load_profile("orc").value.get_value("speed") == 4.5, "with no addon or game, server/<kind>/ is the layer itself")
+	_check(DotCfgLegacy.warned_count() == 0, "and is not reported as legacy")
 	DotCfgLegacy.reset()

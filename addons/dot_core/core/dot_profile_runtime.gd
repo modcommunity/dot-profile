@@ -217,6 +217,10 @@ func _save(actor: Variant, set: DotProfileSet, id: String) -> DotResult:
 	var paths := set.runtime_paths(id)
 	if paths.is_empty():
 		return DotResult.fail(DotError.CODE_STATE, "%s/%s has no runtime edits to save" % [set.rel_path, id])
+	for part in [set.game, set.addon_name]:
+		if part != "" and not set._id_ok(part):
+			push_error("DotProfileRuntime: bad game or addon name '%s'" % part)
+			return DotResult.fail(DotError.CODE_INVALID, "bad game or addon name '%s'" % part)
 	var base := save_root.path_join("server")
 	if set.game != "":
 		base = base.path_join("game").path_join(set.game)

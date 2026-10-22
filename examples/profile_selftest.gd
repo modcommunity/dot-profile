@@ -7,7 +7,7 @@ extends Node
 ## [/codeblock]
 
 const SECTIONS := 10
-const CHECKS := 72
+const CHECKS := 76
 const BASE := "user://profile_selftest"
 
 var _passed := 0
@@ -177,6 +177,28 @@ func _test_tiers() -> void:
 	var two := _mk()
 	two.roots = PackedStringArray([BASE + "_x", BASE])
 	_check(two.load_profile("orc").value.get_value("health") == 175, "a later root wins within a tier")
+	_rm(BASE + "_x")
+	_w("server/addons/dot-npc/npc/orc.yml", "health: 222\n")
+	_w("server/npc/orc.yml", "health: 333\n")
+	DirAccess.make_dir_recursive_absolute(BASE + "_x/server/game/mygame/npc")
+	var gf := FileAccess.open(BASE + "_x/server/game/mygame/npc/orc.yml", FileAccess.WRITE)
+	gf.store_string("health: 111\n")
+	gf.close()
+	var tf := _mk()
+	tf.roots = PackedStringArray([BASE + "_x", BASE])
+	_check(tf.load_profile("orc").value.get_value("health") == 111, "an earlier root's server/game beats a later root's server/addons")
+	_rm(BASE + "_x/server")
+	DirAccess.remove_absolute(BASE + "_x")
+	tf.clear_cache()
+	_check(tf.load_profile("orc").value.get_value("health") == 222, "server/addons beats the legacy server/<kind> in any root order")
+	_w("server/evil/npc/orc.yml", "health: 999\n")
+	var bad := _mk()
+	bad.game = "../evil"
+	_check(bad.load_profile("orc").value.get_value("health") != 999, "a game name with .. is skipped")
+	_w("server/game/a/b/npc/orc.yml", "health: 888\n")
+	bad.game = "a/b"
+	bad.clear_cache()
+	_check(bad.load_profile("orc").value.get_value("health") != 888, "a game name with / is skipped")
 	_check(_mk("npc").game == "mygame" and DotProfileSet.create("dot-npc", "", "npc").has_id("orc") == false, "no game id skips the game tier")
 
 

@@ -7,7 +7,7 @@ extends Node
 ## [/codeblock]
 
 const SECTIONS := 9
-const CHECKS := 63
+const CHECKS := 65
 const BASE := "user://profile_runtime_selftest"
 
 var _passed := 0
@@ -248,6 +248,12 @@ func _test_save() -> void:
 	server.handle_request("admin", _req("save", "zombie"))
 	var merged := DotYaml.parse_file(file).value as Dictionary
 	_check(merged.size() == 6 and merged["speed"] == 4.0 and merged["health"] == 300, "a second save keeps the earlier server keys")
+	var ss: DotProfileSet = w["ss"]
+	ss.game = "../evil"
+	server.handle_request("admin", _req("set", "zombie", "speed", 5.0))
+	var evil := server.handle_request("admin", _req("save", "zombie"))
+	_check(not evil.ok and evil.error.code == DotError.CODE_INVALID, "a game name with .. is refused on save")
+	_check(not FileAccess.file_exists(BASE.path_join("server/evil/npc/zombie.yml")), "and nothing is written outside the game folder")
 
 
 func _test_audit() -> void:

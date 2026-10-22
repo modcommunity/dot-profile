@@ -298,7 +298,7 @@ func _roots() -> PackedStringArray:
 	return roots if not roots.is_empty() else default_roots()
 
 
-## tier -> existing directories for [param rel], weakest root first.
+## tier -> existing directories for [param rel], weakest first: tier outermost, then root order.
 func _tier_dirs(rel: String = "") -> Dictionary:
 	if rel == "":
 		rel = rel_path
@@ -307,32 +307,40 @@ func _tier_dirs(rel: String = "") -> Dictionary:
 		var ud := user_root.path_join(TIER_USER).path_join(rel)
 		if DirAccess.dir_exists_absolute(ud):
 			out[TIER_USER].append(ud)
-	for root in _roots():
-		var cands := {}
-		if addon_name != "":
-			cands[TIER_ADDON] = root.path_join("addons").path_join(addon_name).path_join(rel)
-		if game != "":
-			cands[TIER_GAME] = root.path_join("game").path_join(game).path_join(rel)
-		for tier in cands:
-			if DirAccess.dir_exists_absolute(cands[tier]):
-				out[tier].append(cands[tier])
-		# Operator layers, weakest first: the pre-mirror folder, then addon, then game.
-		var legacy := root.path_join("server").path_join(rel)
-		var mirrored := PackedStringArray()
-		if addon_name != "":
-			mirrored.append(root.path_join("server/addons").path_join(addon_name).path_join(rel))
-		if game != "":
-			mirrored.append(root.path_join("server/game").path_join(game).path_join(rel))
-		if DirAccess.dir_exists_absolute(legacy):
-			out[TIER_SERVER].append(legacy)
-			_legacy_new[legacy] = mirrored[0] if not mirrored.is_empty() else ""
-		for d in mirrored:
-			if DirAccess.dir_exists_absolute(d):
-				out[TIER_SERVER].append(d)
+	var use_addon := addon_name != ""
+	var use_game := game != ""
+	if use_addon and not _id_ok(addon_name):
+		push_error("DotProfileSet: bad addon name '%s'" % addon_name)
+		use_addon = false
+	if use_game and not _id_ok(game):
+		push_error("DotProfileSet: bad game name '%s'" % game)
+		use_game = false
+	# The pre-mirror cfg/server/<kind>/ is the weakest operator layer, then addons, then game.
+	var steps: Array = [[TIER_ADDON, "addons", use_addon, addon_name], [TIER_GAME, "game", use_game, game],
+		[TIER_SERVER, "server", true, ""], [TIER_SERVER, "server/addons", use_addon, addon_name],
+		[TIER_SERVER, "server/game", use_game, game]]
+	for step in steps:
+		if not step[2]:
+			continue
+		for root in _roots():
+			var d: String = root.path_join(step[1])
+			if step[3] != "":
+				d = d.path_join(step[3])
+			d = d.path_join(rel)
+			if not DirAccess.dir_exists_absolute(d):
+				continue
+			out[step[0]].append(d)
+			if step[1] == "server":
+				var mirror := ""
+				if use_game:
+					mirror = root.path_join("server/game").path_join(game).path_join(rel)
+				elif use_addon:
+					mirror = root.path_join("server/addons").path_join(addon_name).path_join(rel)
+				_legacy_new[d] = mirror
 	return out
 
 
-## Legacy server dir -> its mirrored counterpart (empty when the set has no addon or game).
+## Legacy server dir -> its mirrored counterpart (empty when the set has no addon or game: then it is not legacy).
 var _legacy_new: Dictionary = {}
 
 
@@ -341,8 +349,9 @@ func _legacy_ok(dir: String, p: String) -> bool:
 	if not _legacy_new.has(dir):
 		return true
 	var new_dir: String = _legacy_new[dir]
-	var newp := new_dir.path_join(p.trim_prefix(dir + "/")) if new_dir != "" else ""
-	return DotCfgLegacy.find(p, newp) == p
+	if new_dir == "":
+		return true
+	return DotCfgLegacy.find(p, new_dir.path_join(p.trim_prefix(dir + "/"))) == p
 
 
 ## [{path, tier}] for [param id], weakest first.
