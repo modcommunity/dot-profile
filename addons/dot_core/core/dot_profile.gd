@@ -17,8 +17,15 @@ var sources := PackedStringArray()
 var overrides := PackedStringArray()
 ## Overrides refused as secrets.
 var refused := PackedStringArray()
-## The set that loaded this profile.
-var set_ref: DotProfileSet = null
+## The set that loaded this profile; held weakly, so the set's cache and its profiles do not
+## keep each other alive. Null once the set is freed.
+var set_ref: DotProfileSet:
+	get:
+		return _set_weak.get_ref() as DotProfileSet if _set_weak != null else null
+	set(value):
+		_set_weak = weakref(value) if value != null else null
+
+var _set_weak: WeakRef = null
 
 
 ## A schema value, or [param default] when the key is not in the schema.
@@ -36,14 +43,18 @@ func to_dictionary() -> Dictionary:
 	return {"id": id, "values": values.duplicate(true), "extra": extra.duplicate(true)}
 
 
-## The set of sub-entities in this profile's folder, with their own schema.
+## The set of sub-entities in this profile's folder, with their own schema; null once the owning set is freed.
 func child_set(child_kind: String, child_schema: Array = []) -> DotProfileSet:
-	return set_ref.child_set(id, child_kind, child_schema)
+	var owner_set := set_ref
+	if owner_set == null:
+		return null
+	return owner_set.child_set(id, child_kind, child_schema)
 
 
 ## Sub-folders of this profile's folder, such as `upgrades`.
 func child_kinds() -> PackedStringArray:
-	return set_ref.child_kinds(id)
+	var owner_set := set_ref
+	return owner_set.child_kinds(id) if owner_set != null else PackedStringArray()
 
 
 func describe() -> String:

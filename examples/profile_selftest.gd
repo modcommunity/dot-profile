@@ -6,8 +6,8 @@ extends Node
 ## godot --headless --path . res://examples/profile_selftest.tscn
 ## [/codeblock]
 
-const SECTIONS := 9
-const CHECKS := 68
+const SECTIONS := 10
+const CHECKS := 72
 const BASE := "user://profile_selftest"
 
 var _passed := 0
@@ -32,6 +32,7 @@ func _run() -> void:
 	_test_listing()
 	_test_folders()
 	_test_bad_yml()
+	_test_no_cycle()
 	_clean()
 
 	_line("")
@@ -267,6 +268,25 @@ func _test_folders() -> void:
 	_check(s2.get_extra("zoom") == 4, "a child keeps its extra")
 	_check(not up.load_profile("scope").value.values.has("health"), "a child has its own schema")
 	_check(not up.load_profile("pistol").ok, "a child set does not see its parent's siblings")
+
+
+func _test_no_cycle() -> void:
+	_section("A freed set does not leak its cached profiles")
+	_clean()
+	_addon("npc/a.yml", "name: A\n")
+	var s := _mk()
+	var keep: DotProfile = s.load_profile("a").value
+	_check(keep.set_ref == s, "a profile reaches its set while the set lives")
+	var set_w: WeakRef = weakref(s)
+	var prof_w: WeakRef = weakref(keep)
+	keep = null
+	s = null
+	_check(set_w.get_ref() == null, "the set is freed with no clear_cache() call")
+	_check(prof_w.get_ref() == null, "its cached profile is freed with it")
+	var s2 := _mk()
+	var orphan: DotProfile = s2.load_profile("a").value
+	s2 = null
+	_check(orphan.set_ref == null and orphan.child_set("x") == null, "a profile outliving its set has a null set_ref")
 
 
 func _test_bad_yml() -> void:
