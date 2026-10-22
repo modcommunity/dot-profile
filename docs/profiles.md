@@ -42,6 +42,36 @@ var ups := res.value.child_set("upgrades", [DotProfileSet.field("cost", "int", 0
 - `describe()` / `describe_lines()` list the values, files, extends chain, overrides and refusals. Log channel `profile`.
 - Web-safe: no threads, only `DirAccess`/`FileAccess`/`DotYaml`.
 
+## Live editing: `DotProfileRuntime`
+
+An admin changes a profile while the game runs. The layer sits on `DotProfileSet.runtime` (`id -> {dotted path: value}`) and is the strongest tier: schema defaults < addon < game < server < environment < command line < runtime. `DotProfileRuntime` is the controller; it has no UI and no transport, the host moves dictionaries.
+
+```gdscript
+var rt := DotProfileRuntime.new()
+rt.add_set(npc_set)                                   # one per kind (set.rel_path)
+rt.permit = func(actor, flag): return admins.uid_has_permission(actor, flag)   # dot-server's DotAdminManager
+rt.broadcast = func(row): send_to_all("profile_row", row)
+rt.send_to = func(peer, row): send_to_peer(peer, "profile_row", row)
+# server: the command/RPC handler
+var res := rt.handle_request(actor, DotProfileRuntime.make_request("set", "npc", "zombie", "health", 400))
+# client: on "profile_row"
+rt.apply_row(row)                                      # applies only a newer revision
+```
+
+| op | key | value | effect |
+| --- | --- | --- | --- |
+| `set` | dotted path: a schema key, `stats.armor` into a `dict` field, `extra.a.b` | the new value | validated, applied, revision + 1 |
+| `reset_key` | the path | | drops that runtime value |
+| `reset` | | | drops the profile's whole runtime layer |
+| `save` | | | writes `<save_root>/server/<kind>/<id>.yml` with the runtime keys (merged into that file if it exists; other keys stay), then the file is the server tier |
+
+- **Permission**: `permit(actor, flag)`; unset denies everything. `edit_flag` (default `cvar`) for edit and reset, `save_flag` (default `root`, it writes disk) for save, both `DotAdminFlags` names in dot-server. Denied is `CODE_FORBIDDEN`.
+- **Validation** is the schema's: type, `min`/`max`, `enum`, plus NaN and infinity refused anywhere in the value (also now in file values), unknown keys, secret-named keys (`CODE_FORBIDDEN`), unknown profile, kind or op. All `CODE_INVALID`. After applying, the profile is reloaded; if it no longer loads the layer is rolled back. An edit that changes nothing returns `{"changed": false}` and bumps nothing.
+- **Replication**: a row is `{kind, id, rev, paths}`, the profile's full runtime layer, so a lost row is repaired by the next. `rev` counts per profile; `apply_row` returns `false` for `rev <=` the held one. A late joiner gets `send_snapshot(peer)` (one row per edited profile, a reset one arrives empty). A client calls `begin_sync()` before a (re)connect, as a restarted server counts from 0 again.
+- **Audit**: one INFO line on channel `profile`, `profile edited`, with `who` (`actor_name` callable, else `str(actor)`), `op`, `kind`, `id`, `key`, `old`, `new`, `rev`; refusals and denials are WARN.
+- **Listening**: `profile_changed(kind, id, revision)` fires on the server and on each client after a row applies. The set drops its cached profile, so `set.load_profile(id)` returns the new values. Weapons read per shot and so apply on the next shot; NPCs read at spawn, so they apply to new spawns, and a live one needs a `re_apply` hook the NPC addon connects to this signal (`DotNpc` is not wired yet).
+- Runtime edits apply to the profile named, not to profiles that `extends` it. Not wired to a transport yet: dot-net/dot-console get a `profile_edit` command that calls `handle_request` and relays `broadcast`.
+
 ## How the adopters would use it (not done yet)
 
 - **DotNpcDef (dot-npc)**: its exported fields become the schema (`health`, `speed`, ...); `DotNpcDef.from_profile(DotProfile)` fills the resource, `extra:` carries behaviour-specific keys. dot-npc would own addon defaults in `cfg/addons/dot-npc/npc/`, a game ships `cfg/game/<game>/npc/zombie.yml` with the few keys it changes, and spawn tables list `set.list_ids()`.

@@ -38,6 +38,10 @@ var roots := PackedStringArray()
 ## Command-line arguments to read overrides from; empty means the process's own.
 var cmdline := PackedStringArray()
 
+## Runtime layer, above every file tier: profile id -> {dotted path: value}. Written by
+## [DotProfileRuntime]; `extra.a.b` paths land in `extra`, `stats.hp` in a dict field.
+var runtime: Dictionary = {}
+
 var _cache: Dictionary = {}
 
 
@@ -107,6 +111,52 @@ func load_profile(id: String) -> DotResult:
 ## Forgets loaded profiles so the next load reads the files again.
 func clear_cache() -> void:
 	_cache.clear()
+
+
+## Replaces the runtime layer of [param id] (empty [param paths] clears it) and drops its cache.
+func set_runtime(id: String, paths: Dictionary) -> void:
+	if paths.is_empty():
+		runtime.erase(id)
+	else:
+		runtime[id] = paths.duplicate(true)
+	_cache.erase(id)
+
+
+## The runtime layer of [param id] as a copy.
+func runtime_paths(id: String) -> Dictionary:
+	return (runtime.get(id, {}) as Dictionary).duplicate(true)
+
+
+## Checks one runtime edit against the schema without applying it. Value: `{path, value}` with
+## the value coerced to the field's type. NaN, infinity, unknown keys and secrets are refused.
+func check_edit(id: String, path: String, value: Variant) -> DotResult:
+	if not has_id(id):
+		return DotResult.fail(DotError.CODE_INVALID, "%s: " % id + "no such profile")
+	var parts := path.split(".")
+	if path.is_empty() or parts.has(""):
+		return DotResult.fail(DotError.CODE_INVALID, "%s: " % id + "bad key path '%s'" % path)
+	if not _finite(value):
+		return DotResult.fail(DotError.CODE_INVALID, "%s: " % id + "%s: NaN or infinity is refused" % path)
+	if DotAddonConfig._is_sensitive(parts[parts.size() - 1], sensitive):
+		return DotResult.fail(DotError.CODE_FORBIDDEN, "%s: " % id + "%s: secrets cannot be edited at runtime" % path)
+	if parts[0] == EXTRA_KEY:
+		if parts.size() < 2:
+			return DotResult.fail(DotError.CODE_INVALID, "%s: " % id + "name a key under '%s'" % EXTRA_KEY)
+		return DotResult.success({"path": path, "value": value})
+	var f := {}
+	for e in schema:
+		if e["name"] == parts[0]:
+			f = e
+	if f.is_empty():
+		return DotResult.fail(DotError.CODE_INVALID, "%s: " % id + "unknown key '%s'" % parts[0])
+	if parts.size() > 1:
+		if f["type"] != "dict" and f["type"] != "any":
+			return DotResult.fail(DotError.CODE_INVALID, "%s: " % id + "%s is not a mapping" % parts[0])
+		return DotResult.success({"path": path, "value": value})
+	var checked := _check_field(f, value)
+	if checked.has("error"):
+		return DotResult.fail(DotError.CODE_INVALID, "%s: " % id + "%s: %s" % [path, checked["error"]])
+	return DotResult.success({"path": path, "value": checked["value"]})
 
 
 ## The set below profile [param id]: `<rel>/<id>/<child_kind>`, with its own schema.
@@ -262,6 +312,16 @@ func _load(id: String) -> DotResult:
 			v = o["value"]
 			supplied[k] = true
 		values[k] = v
+	for path in runtime.get(id, {}):
+		var parts: PackedStringArray = String(path).split(".")
+		if parts[0] == EXTRA_KEY and parts.size() > 1 and extra is Dictionary:
+			_set_path(extra, parts.slice(1), runtime[id][path])
+		elif names.has(parts[0]):
+			if parts.size() == 1:
+				values[parts[0]] = runtime[id][path]
+			elif values[parts[0]] is Dictionary:
+				_set_path(values[parts[0]], parts.slice(1), runtime[id][path])
+			supplied[parts[0]] = true
 	for k in names:
 		var f: Dictionary = names[k]
 		if f.get("required", false) and not supplied[k]:
@@ -324,6 +384,30 @@ func _override(id: String, key: String, f: Dictionary, current: Variant, overrid
 	return {"value": coerced}
 
 
+static func _set_path(root: Dictionary, parts: PackedStringArray, value: Variant) -> void:
+	var at := root
+	for i in parts.size() - 1:
+		if not (at.get(parts[i]) is Dictionary):
+			at[parts[i]] = {}
+		at = at[parts[i]]
+	at[parts[parts.size() - 1]] = value.duplicate(true) if value is Array or value is Dictionary else value
+
+
+## False when [param v] is, or holds, NaN or infinity.
+static func _finite(v: Variant) -> bool:
+	if v is float:
+		return is_finite(v)
+	if v is Array:
+		for e in v:
+			if not _finite(e):
+				return false
+	elif v is Dictionary:
+		for k in v:
+			if not _finite(v[k]):
+				return false
+	return true
+
+
 ## {value} or {error} after type, enum and range checks.
 func _check_field(f: Dictionary, v: Variant) -> Dictionary:
 	var t: String = f["type"]
@@ -339,7 +423,7 @@ func _check_field(f: Dictionary, v: Variant) -> Dictionary:
 			else:
 				return {"error": "expected int, got %s" % str(v)}
 		"float":
-			if v is int or v is float:
+			if (v is int or v is float) and _finite(v):
 				out = float(v)
 			else:
 				return {"error": "expected float, got %s" % str(v)}
