@@ -9,7 +9,8 @@ extends Node
 ## [/codeblock]
 
 const TOOL := "res://addons/dot_core/tools/profile_check.gd"
-const SCHEMA := "res://examples/profile_check_schema.gd"
+const DUP := "res://examples/profile_check_dup_schema.gd"
+const BADSCHEMA := "res://examples/profile_check_bad_schema.gd"
 const BASE := "user://profile_check_selftest"
 const GOOD := {
 	"cfg/addons/pk/thing/ok.yml": "hp: 20\nextra:\n  anything: 1\n",
@@ -71,6 +72,13 @@ func _ready() -> void:
 	_check(good["code"] == 0, "clean tree exits 0 (got %d)" % good["code"])
 	_check(String(good["text"]).contains("PROFILE_CHECK files 5 errors 0"), "clean tree: files 5 errors 0")
 
+	var dup := _run(root, ["--schema", DUP])
+	_check(dup["code"] == 1, "two providers for one kind exit 1")
+	_check(String(dup["text"]).contains("kind 'thing' is also provided by") and String(dup["text"]).contains("profile_check_schema.gd") and String(dup["text"]).contains("profile_check_dup_schema.gd"), "duplicate kind names both providers")
+	var bads := _run(root, ["--schema", BADSCHEMA])
+	_check(bads["code"] == 1 and String(bads["text"]).contains("kind 'gadget'"), "a provider with a bad return is named")
+	_check(String(good["text"]).contains("errors 0"), "class-cache discovery found the fixture with no --schema")
+
 	_wipe(root)
 	print("%d passed, %d failed" % [_passed, _failed])
 	if _failed > 0:
@@ -78,11 +86,11 @@ func _ready() -> void:
 	get_tree().quit(1 if _failed > 0 else 0)
 
 
-func _run(root: String) -> Dictionary:
+func _run(root: String, extra: Array = []) -> Dictionary:
 	var out := []
 	var code := OS.execute(OS.get_executable_path(), [
 		"--headless", "--path", ProjectSettings.globalize_path("res://"),
-		"--script", TOOL, "--", root, "--schema", SCHEMA], out, true)
+		"--script", TOOL, "--", root] + extra, out, true)
 	return {"code": code, "text": str(out[0]) if not out.is_empty() else ""}
 
 

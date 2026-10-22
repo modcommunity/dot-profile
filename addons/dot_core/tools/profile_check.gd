@@ -14,22 +14,18 @@ extends SceneTree
 ## [code].yaml[/code] files (never read), a folder profile with no file of its own, and child
 ## folders with no schema.
 ##
-## [b]Schemas[/b] live in code. Built in: [code]weapon[/code] (with [code]upgrades[/code]) from
-## [code]DotWeaponProfiles[/code] and [code]npc[/code] from [code]DotNpcProfiles[/code], found by
-## class name when the project links that addon. [code]--schema <script>[/code] adds a script with
-## [code]static func profile_schemas() -> Dictionary[/code]: kind to a field Array, or to
-## [code]{"schema": [...], "children": {name: [...]}}[/code]. A kind with no schema is an error
-## unless [code]--skip-unknown[/code].
+## [b]Schemas[/b] live in code. Every registered global class whose script defines
+## [code]static func profile_schemas() -> Dictionary[/code] is a provider (dot-weapon, dot-npc and
+## a game's own, once the project is imported), and [code]--schema <script>[/code] adds one more.
+## The Dictionary maps a kind to a field Array, or to
+## [code]{"schema": [...], "children": {name: [...]}}[/code]. Two providers for one kind, or a
+## malformed return, is an error. A kind with no schema is an error unless [code]--skip-unknown[/code].
 ##
 ## Prints one [code]path: message[/code] line per problem and [code]PROFILE_CHECK files N errors M[/code];
 ## exits 1 on any error. No [code]class_name[/code]: it adds no global.
 
-const KIND_PROVIDERS := {
-	"weapon": {"class": "DotWeaponProfiles", "schema": "schema", "children": {"upgrades": "upgrade_schema"}},
-	"npc": {"class": "DotNpcProfiles", "schema": "schema", "children": {}},
-}
-
 var _providers: Dictionary = {}
+var _seen_scripts := {}
 var _skip_unknown := false
 var _errors := PackedStringArray()
 var _files := 0
@@ -39,6 +35,7 @@ func _initialize() -> void:
 	DotLog.set_level(DotLog.Level.FATAL)
 	var dirs := PackedStringArray()
 	var args := OS.get_cmdline_user_args()
+	var explicit := PackedStringArray()
 	var i := 0
 	while i < args.size():
 		match args[i]:
@@ -47,11 +44,13 @@ func _initialize() -> void:
 			"--schema":
 				i += 1
 				if i < args.size():
-					_load_provider_script(args[i])
+					explicit.append(args[i])
 			_:
 				dirs.append(args[i])
 		i += 1
-	_load_builtin_providers()
+	_discover_providers()
+	for e in explicit:
+		_load_provider_script(e)
 	if dirs.is_empty():
 		_error("(arguments)", "give at least one repository or cfg directory")
 	for d in dirs:
@@ -83,18 +82,12 @@ func _class_script(cls: String) -> Script:
 	return null
 
 
-func _load_builtin_providers() -> void:
-	for kind in KIND_PROVIDERS:
-		if _providers.has(kind):
-			continue
-		var spec: Dictionary = KIND_PROVIDERS[kind]
-		var s := _class_script(spec["class"])
-		if s == null:
-			continue
-		var children := {}
-		for c in spec["children"]:
-			children[c] = s.call(spec["children"][c])
-		_providers[kind] = {"schema": s.call(spec["schema"]), "children": children}
+## Class cache scan; the text pre-filter keeps it from loading every script of a game.
+func _discover_providers() -> void:
+	for c in ProjectSettings.get_global_class_list():
+		var path: String = c["path"]
+		if FileAccess.get_file_as_string(path).contains("static func profile_schemas("):
+			_register(load(path), path)
 
 
 func _load_provider_script(path: String) -> void:
@@ -104,10 +97,42 @@ func _load_provider_script(path: String) -> void:
 	if not (s is Script) or not (s as Script).has_method("profile_schemas"):
 		_error(path, "--schema needs a script with static profile_schemas()")
 		return
-	var d: Dictionary = (s as Script).call("profile_schemas")
+	_register(s, path)
+
+
+func _register(s: Script, label: String) -> void:
+	if s == null or not s.has_method("profile_schemas"):
+		_error(label, "provider script does not load or has no static profile_schemas()")
+		return
+	if _seen_scripts.has(s.resource_path):
+		return
+	_seen_scripts[s.resource_path] = true
+	var d: Variant = s.call("profile_schemas")
+	if not (d is Dictionary):
+		_error(label, "profile_schemas() must return a Dictionary of kind to schema")
+		return
 	for kind in d:
 		var v: Variant = d[kind]
-		_providers[kind] = v if v is Dictionary else {"schema": v, "children": {}}
+		var entry: Variant = v if v is Dictionary else {"schema": v, "children": {}}
+		if not _valid_entry(entry):
+			_error(label, "profile_schemas() kind '%s': need a field Array, or {\"schema\": Array, \"children\": {name: Array}}" % kind)
+			continue
+		if _providers.has(kind):
+			_error(label, "kind '%s' is also provided by %s" % [kind, _providers[kind]["source"]])
+			continue
+		_providers[kind] = {"schema": entry["schema"], "children": entry.get("children", {}), "source": label}
+
+
+func _valid_entry(entry: Variant) -> bool:
+	if not (entry is Dictionary) or not (entry.get("schema") is Array):
+		return false
+	var kids: Variant = entry.get("children", {})
+	if not (kids is Dictionary):
+		return false
+	for k in kids:
+		if not (kids[k] is Array):
+			return false
+	return true
 
 
 func _check_root(dir: String) -> void:

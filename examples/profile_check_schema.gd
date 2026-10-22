@@ -1,6 +1,7 @@
+class_name DotProfileCheckFixture
 extends RefCounted
 
-## Schema provider for profile_check_selftest: kind `thing` with an `opt` child set.
+## Provider for profile_check_selftest, found through the class cache: kind `thing` with an `opt` child set.
 
 
 static func profile_schemas() -> Dictionary:
