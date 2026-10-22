@@ -4,15 +4,16 @@ One file per entity (an NPC, a weapon, a player class) instead of one big config
 
 ## Where files live
 
-Two tiers with the same shape, plus a server tier:
+Two tiers with the same shape, a user tier and a server tier:
 
 | Tier | Path | Who writes it |
 | --- | --- | --- |
 | addon | `cfg/addons/<addon_name>/<kind>/<id>.yml` | the addon's defaults |
 | game | `cfg/game/<game>/<kind>/<id>.yml` | the game, overriding a few keys or adding profiles |
+| user | `user://cfg/user/<kind>/<id>.yml` | the player, in a solo or listen-host game only (below) |
 | server | `cfg/server/<kind>/<id>.yml` | the operator |
 
-Each tier is looked up under every config root, weakest first (`res://cfg`, next to the executable, `user://cfg`, `--config DIR`), as [addon-config.md](addon-config.md). Precedence, weakest first: schema defaults < addon < game < server < environment < command line. A game file may hold only the keys it changes. Works from `res://` (packs) and `user://`; exports need `cfg/*` in the preset's `include_filter`.
+Each tier is looked up under every config root, weakest first (`res://cfg`, next to the executable, `user://cfg`, `--config DIR`), as [addon-config.md](addon-config.md). Precedence, weakest first: schema defaults < addon < game < user < server < environment < command line. A game file may hold only the keys it changes. Works from `res://` (packs) and `user://`; exports need `cfg/*` in the preset's `include_filter`.
 
 A profile may be a folder: `<kind>/<id>/<id>.yml` (or `profile.yml`) with child sets beside it, such as `weapon/pistol/upgrades/scope.yml`. Children are loaded lazily, each set with its own schema and its own `extends`, and see the same three tiers.
 
@@ -42,9 +43,13 @@ var ups := res.value.child_set("upgrades", [DotProfileSet.field("cost", "int", 0
 - `describe()` / `describe_lines()` list the values, files, extends chain, overrides and refusals. Log channel `profile`.
 - Web-safe: no threads, only `DirAccess`/`FileAccess`/`DotYaml`.
 
+## The user tier: a player's own mod layer
+
+`user://cfg/user/<kind>/<id>.yml` (`set.user_root` moves it) sits between game and server. It is **off** (`DotProfileSet.user_tier_enabled`, static, default false) and the process that is a solo or listen-host game turns it on with `DotProfileSet.set_user_tier(true)`; a dedicated server never does, and a client turns it off on connecting, so a file on a player's disk can never change what a server's profile says. `set.save_user(id, {path: value})` validates every path with `check_edit`, merges into the file, writes it, reloads the profile and restores the old file if it no longer loads (`CODE_STATE` while the tier is off); `set.reset_user(id)` deletes the file; `set.user_paths(id)` reads it. Writes call `DotWeb.sync_filesystem()`. `examples/user_tier_selftest`; dot-menu's `DotProfileEditorScreen` edits through it.
+
 ## Live editing: `DotProfileRuntime`
 
-An admin changes a profile while the game runs. The layer sits on `DotProfileSet.runtime` (`id -> {dotted path: value}`) and is the strongest tier: schema defaults < addon < game < server < environment < command line < runtime. `DotProfileRuntime` is the controller; it has no UI and no transport, the host moves dictionaries.
+An admin changes a profile while the game runs. The layer sits on `DotProfileSet.runtime` (`id -> {dotted path: value}`) and is the strongest tier: schema defaults < addon < game < user < server < environment < command line < runtime. `DotProfileRuntime` is the controller; it has no UI and no transport, the host moves dictionaries.
 
 ```gdscript
 var rt := DotProfileRuntime.new()

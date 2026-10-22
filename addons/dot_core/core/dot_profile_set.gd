@@ -7,7 +7,8 @@ extends RefCounted
 ## `profile.yml`) that may hold child sets (`<kind>/<id>/upgrades/<child>.yml`). Tiers, weakest
 ## first: schema defaults < addon (`cfg/addons/<addon>/`) < game (`cfg/game/<game>/`) < server
 ## (`cfg/server/`) < environment < command line. A weaker tier's file may be overridden by a
-## few keys of a stronger one. See docs/profiles.md.
+## few keys of a stronger one. A player's `user` tier sits between game and server, on only in a
+## solo or listen-host process. See docs/profiles.md.
 
 const CHANNEL := "profile"
 const EXTENSION := "yml"
@@ -17,7 +18,12 @@ const EXTRA_KEY := "extra"
 const EXTENDS_KEY := "extends"
 const TIER_ADDON := "addon"
 const TIER_GAME := "game"
+const TIER_USER := "user"
 const TIER_SERVER := "server"
+
+## Whether the user tier (`user://cfg/user/`) is read. Off: a dedicated server or a connected client
+## must never obey a file on the player's disk. The solo or listen-host game turns it on.
+static var user_tier_enabled := false
 
 ## Owning addon (`cfg/addons/<addon>/`), empty to skip the addon tier.
 var addon_name := ""
@@ -37,6 +43,8 @@ var override_prefix := "profile"
 var roots := PackedStringArray()
 ## Command-line arguments to read overrides from; empty means the process's own.
 var cmdline := PackedStringArray()
+## Where the user tier lives: `<user_root>/user/<kind>/<id>.yml`.
+var user_root := "user://cfg"
 
 ## Runtime layer, above every file tier: profile id -> {dotted path: value}. Written by
 ## [DotProfileRuntime]; `extra.a.b` paths land in `extra`, `stats.hp` in a dict field.
@@ -61,6 +69,11 @@ static func field(p_name: String, type: String, default: Variant = null, opts: D
 	var d := {"name": p_name, "type": type, "default": default}
 	d.merge(opts, true)
 	return d
+
+
+## Turns the user tier on for a solo or listen-host process, off for a server or a connected client.
+static func set_user_tier(enabled: bool) -> void:
+	user_tier_enabled = enabled
 
 
 ## Config roots, weakest first: `res://cfg`, next to the executable, `user://cfg`, `--config DIR`.
@@ -159,6 +172,86 @@ func check_edit(id: String, path: String, value: Variant) -> DotResult:
 	return DotResult.success({"path": path, "value": checked["value"]})
 
 
+## Path of the user-tier file for [param id].
+func user_file(id: String) -> String:
+	return user_root.path_join(TIER_USER).path_join(rel_path).path_join(id + "." + EXTENSION)
+
+
+## The user tier's own `{dotted path: value}` for [param id], read even when the tier is off.
+func user_paths(id: String) -> Dictionary:
+	var file := user_file(id)
+	if not _id_ok(id) or not FileAccess.file_exists(file):
+		return {}
+	var res := DotYaml.parse_file(file)
+	var out := {}
+	if res.ok and res.value is Dictionary:
+		_flatten(res.value, "", out)
+	return out
+
+
+## Writes [param paths] (`{dotted path: value}`) into the user file, keeping its other keys. Each
+## is checked against the schema and the profile must still load, else the file is restored.
+func save_user(id: String, paths: Dictionary) -> DotResult:
+	if not user_tier_enabled:
+		return DotResult.fail(DotError.CODE_STATE, "%s/%s: the user tier is off in this process" % [rel_path, id])
+	if not has_id(id):
+		return DotResult.fail(DotError.CODE_INVALID, "%s/%s: no such profile" % [rel_path, id])
+	var tree := {}
+	var file := user_file(id)
+	var had := FileAccess.file_exists(file)
+	var before := ""
+	if had:
+		var existing := DotYaml.parse_file(file)
+		if not existing.ok:
+			return existing.wrap("saving %s" % file)
+		if existing.value is Dictionary:
+			tree = existing.value
+		before = FileAccess.get_file_as_string(file)
+	for path in paths:
+		var ok := check_edit(id, String(path), paths[path])
+		if not ok.ok:
+			return ok
+		_set_path(tree, String(path).split("."), ok.value["value"])
+	var text: Variant = DotProfileRuntime._emit(tree, 0)
+	if text == null:
+		return DotResult.fail(DotError.CODE_INVALID, "%s/%s holds a value yml cannot carry" % [rel_path, id])
+	var dir := DotPaths.ensure_parent_dir(file)
+	if not dir.ok:
+		return dir
+	var wrote := DotPaths.write_text(file, text)
+	if not wrote.ok:
+		return wrote.wrap("saving %s" % file)
+	_cache.erase(id)
+	var loaded := load_profile(id)
+	if not loaded.ok:
+		if had:
+			DotPaths.write_text(file, before)
+		else:
+			DirAccess.remove_absolute(file)
+		_cache.erase(id)
+		DotWeb.sync_filesystem()
+		return loaded
+	DotWeb.sync_filesystem()
+	DotLog.info(CHANNEL, "profile saved to user layer", {"kind": rel_path, "id": id, "keys": paths.size()})
+	return DotResult.success({"saved": file})
+
+
+## Removes the user file of [param id]: back to the tiers below. Value: true when a file was removed.
+func reset_user(id: String) -> DotResult:
+	if not _id_ok(id):
+		return DotResult.fail(DotError.CODE_INVALID, "bad profile id")
+	var file := user_file(id)
+	if not FileAccess.file_exists(file):
+		return DotResult.success(false)
+	var err := DirAccess.remove_absolute(file)
+	if err != OK:
+		return DotResult.fail(DotError.CODE_IO, "cannot remove %s" % file)
+	_cache.erase(id)
+	DotWeb.sync_filesystem()
+	DotLog.info(CHANNEL, "profile user layer reset", {"kind": rel_path, "id": id})
+	return DotResult.success(true)
+
+
 ## The set below profile [param id]: `<rel>/<id>/<child_kind>`, with its own schema.
 func child_set(id: String, child_kind: String, child_schema: Array = []) -> DotProfileSet:
 	var s := DotProfileSet.create(addon_name, game, rel_path.path_join(id).path_join(child_kind), child_schema)
@@ -167,6 +260,7 @@ func child_set(id: String, child_kind: String, child_schema: Array = []) -> DotP
 	s.override_prefix = override_prefix
 	s.roots = roots
 	s.cmdline = cmdline
+	s.user_root = user_root
 	return s
 
 
@@ -208,7 +302,11 @@ func _roots() -> PackedStringArray:
 func _tier_dirs(rel: String = "") -> Dictionary:
 	if rel == "":
 		rel = rel_path
-	var out := {TIER_ADDON: [], TIER_GAME: [], TIER_SERVER: []}
+	var out := {TIER_ADDON: [], TIER_GAME: [], TIER_USER: [], TIER_SERVER: []}
+	if user_tier_enabled:
+		var ud := user_root.path_join(TIER_USER).path_join(rel)
+		if DirAccess.dir_exists_absolute(ud):
+			out[TIER_USER].append(ud)
 	for root in _roots():
 		var cands := {}
 		if addon_name != "":
@@ -226,7 +324,7 @@ func _tier_dirs(rel: String = "") -> Dictionary:
 func _files_for(id: String) -> Array:
 	var out: Array = []
 	var tiers := _tier_dirs()
-	for tier in [TIER_ADDON, TIER_GAME, TIER_SERVER]:
+	for tier in [TIER_ADDON, TIER_GAME, TIER_USER, TIER_SERVER]:
 		for d in tiers[tier]:
 			for p in [d.path_join(id + "." + EXTENSION), d.path_join(id).path_join(id + "." + EXTENSION), d.path_join(id).path_join(FOLDER_FILE + "." + EXTENSION)]:
 				if FileAccess.file_exists(p):
@@ -382,6 +480,15 @@ func _override(id: String, key: String, f: Dictionary, current: Variant, overrid
 		return null
 	overrides.append("%s <- %s" % [key, from])
 	return {"value": coerced}
+
+
+static func _flatten(tree: Dictionary, prefix: String, out: Dictionary) -> void:
+	for k in tree:
+		var key: String = prefix + str(k)
+		if tree[k] is Dictionary and (tree[k] as Dictionary).size() > 0 and prefix == "" and str(k) == EXTRA_KEY:
+			_flatten(tree[k], key + ".", out)
+		else:
+			out[key] = tree[k]
 
 
 static func _set_path(root: Dictionary, parts: PackedStringArray, value: Variant) -> void:
