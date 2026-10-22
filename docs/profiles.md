@@ -43,6 +43,10 @@ var ups := res.value.child_set("upgrades", [DotProfileSet.field("cost", "int", 0
 - `describe()` / `describe_lines()` list the values, files, extends chain, overrides and refusals. Log channel `profile`.
 - Web-safe: no threads, only `DirAccess`/`FileAccess`/`DotYaml`.
 
+## Checking files without a game: `profile_check`
+
+`godot --headless --path . --script addons/dot_core/tools/profile_check.gd -- <repo> [--schema <script>] [--skip-unknown]` loads every profile under `cfg/addons/*`, `cfg/game/*` and `cfg/server/*` through `DotProfileSet` and prints one `path: message` per problem (unknown key, wrong type, out of range, NaN or infinity, missing or cyclic `extends`, malformed yml), plus duplicate ids, `.yaml` files, folder profiles without their own file and child folders without a schema. Exit 1 on any problem. Schemas live in code: `weapon` (with `upgrades`) and `npc` are built in when the project links dot-weapon or dot-npc, and a project's own kinds come from `--schema`, a script with `static func profile_schemas() -> Dictionary` (kind to a field array, or `{"schema": [...], "children": {name: [...]}}`). dot-ci runs it with `profiles: true`. `examples/profile_check_selftest`.
+
 ## The user tier: a player's own mod layer
 
 `user://cfg/user/<kind>/<id>.yml` (`set.user_root` moves it) sits between game and server. It is **off** (`DotProfileSet.user_tier_enabled`, static, default false) and the process that is a solo or listen-host game turns it on with `DotProfileSet.set_user_tier(true)`; a dedicated server never does, and a client turns it off on connecting, so a file on a player's disk can never change what a server's profile says. `set.save_user(id, {path: value})` validates every path with `check_edit`, merges into the file, writes it, reloads the profile and restores the old file if it no longer loads (`CODE_STATE` while the tier is off); `set.reset_user(id)` deletes the file; `set.user_paths(id)` reads it. Writes call `DotWeb.sync_filesystem()`. `examples/user_tier_selftest`; dot-menu's `DotProfileEditorScreen` edits through it.
