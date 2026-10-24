@@ -39,6 +39,8 @@ var strict := true
 var sensitive := PackedStringArray()
 ## Prefix for environment (`PROFILE_NPC_ZOMBIE_HEALTH`) and command line (`--profile.npc/zombie.health=5`).
 var override_prefix := "profile"
+## Ids that exist with no file on disk: every field at its default until a file or the runtime layer says otherwise.
+var implicit_ids := PackedStringArray()
 ## Config roots, weakest first. Empty means [method default_roots].
 var roots := PackedStringArray()
 ## Command-line arguments to read overrides from; empty means the process's own.
@@ -102,6 +104,8 @@ func list_ids() -> PackedStringArray:
 				if FileAccess.file_exists(d.path_join(sub).path_join(sub + "." + EXTENSION)) \
 						or FileAccess.file_exists(d.path_join(sub).path_join(FOLDER_FILE + "." + EXTENSION)):
 					seen[sub] = true
+	for id in implicit_ids:
+		seen[id] = true
 	var out := PackedStringArray(seen.keys())
 	out.sort()
 	return out
@@ -109,7 +113,7 @@ func list_ids() -> PackedStringArray:
 
 ## True when some tier has a file for [param id].
 func has_id(id: String) -> bool:
-	return _id_ok(id) and not _files_for(id).is_empty()
+	return _id_ok(id) and (implicit_ids.has(id) or not _files_for(id).is_empty())
 
 
 ## Loads, extends-resolves, overrides and validates one profile. Value: a [DotProfile].
@@ -377,7 +381,7 @@ func _raw(id: String, visiting: PackedStringArray) -> DotResult:
 	if not _id_ok(id):
 		return _fail(DotError.CODE_INVALID, id, "bad profile id")
 	var files := _files_for(id)
-	if files.is_empty():
+	if files.is_empty() and not implicit_ids.has(id):
 		return _fail(DotError.CODE_INVALID, id, "no such profile")
 	var merged := {}
 	var sources := PackedStringArray()

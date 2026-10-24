@@ -7,7 +7,7 @@ extends Node
 ## [/codeblock]
 
 const SECTIONS := 10
-const CHECKS := 78
+const CHECKS := 81
 const BASE := "user://profile_selftest"
 
 var _passed := 0
@@ -333,6 +333,13 @@ func _test_bad_yml() -> void:
 	_check(not s.load_profile("kid").ok and s.load_profile("ok").ok, "a bad parent fails the child only")
 	_check(s.describe().contains("DotProfileSet") and s.load_profile("ok").value.describe().contains("DotProfile ok"), "describe works")
 	_check(s.load_profile("ok").value.describe_lines().size() >= 2, "describe_lines lists values and sources")
+
+
+	var imp := _mk()
+	imp.implicit_ids = PackedStringArray(["settings"])
+	_check(imp.has_id("settings") and list_eq(imp.list_ids().slice(0, 0), []) and imp.list_ids().has("settings"), "an implicit id exists and is listed with no file")
+	_check(imp.load_profile("settings").ok and not imp.has_id("other"), "and loads as all defaults; other ids still need a file")
+	_check(not imp.load_profile("other").ok, "a non-implicit id with no file still fails")
 
 
 func list_eq(a: PackedStringArray, b: Array) -> bool:
