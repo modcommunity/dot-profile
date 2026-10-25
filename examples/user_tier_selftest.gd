@@ -74,7 +74,7 @@ func _rm(dir: String) -> void:
 
 func _seed() -> void:
 	_clean()
-	_w("addons/dot-npc/npc/orc.yml", "health: 100\nspeed: 2\n")
+	_w("addon/dot-npc/npc/orc.yml", "health: 100\nspeed: 2\n")
 	_w("game/mygame/npc/orc.yml", "health: 150\n")
 	_w("user/npc/orc.yml", "health: 400\nspeed: 5\n")
 	_w("server/npc/orc.yml", "speed: 1.5\n")
@@ -197,8 +197,8 @@ func _test_server_mirror() -> void:
 	var s := _mk()
 	_check(s.load_profile("orc").value.get_value("speed") == 1.5, "the old server/<kind>/ is still read")
 	_check(DotCfgLegacy.warned_count() == 1, "with one warning")
-	_w("server/addons/dot-npc/npc/orc.yml", "speed: 2.5\n")
-	_check(_mk().load_profile("orc").value.get_value("speed") == 2.5, "server/addons/<addon>/ wins over the old folder")
+	_w("server/addon/dot-npc/npc/orc.yml", "speed: 2.5\n")
+	_check(_mk().load_profile("orc").value.get_value("speed") == 2.5, "server/addon/<addon>/ wins over the old folder")
 	_w("server/game/mygame/npc/orc.yml", "speed: 3.5\n")
 	_check(_mk().load_profile("orc").value.get_value("speed") == 3.5, "server/game/<game>/ is strongest")
 	_clean()

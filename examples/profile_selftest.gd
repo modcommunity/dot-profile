@@ -6,8 +6,8 @@ extends Node
 ## godot --headless --path . res://examples/profile_selftest.tscn
 ## [/codeblock]
 
-const SECTIONS := 10
-const CHECKS := 81
+const SECTIONS := 11
+const CHECKS := 90
 const BASE := "user://profile_selftest"
 
 var _passed := 0
@@ -27,6 +27,7 @@ func _run() -> void:
 	_test_extends()
 	_test_merge()
 	_test_tiers()
+	_test_plural_legacy()
 	_test_overrides()
 	_test_extra()
 	_test_listing()
@@ -72,7 +73,7 @@ func _w(rel: String, text: String) -> void:
 
 
 func _addon(rel: String, text: String) -> void:
-	_w("addons/dot-npc/" + rel, text)
+	_w("addon/dot-npc/" + rel, text)
 
 
 func _gamef(rel: String, text: String) -> void:
@@ -182,7 +183,7 @@ func _test_tiers() -> void:
 	two.roots = PackedStringArray([BASE + "_x", BASE])
 	_check(two.load_profile("orc").value.get_value("health") == 175, "a later root wins within a tier")
 	_rm(BASE + "_x")
-	_w("server/addons/dot-npc/npc/orc.yml", "health: 222\n")
+	_w("server/addon/dot-npc/npc/orc.yml", "health: 222\n")
 	_w("server/npc/orc.yml", "health: 333\n")
 	DirAccess.make_dir_recursive_absolute(BASE + "_x/server/game/mygame/npc")
 	var gf := FileAccess.open(BASE + "_x/server/game/mygame/npc/orc.yml", FileAccess.WRITE)
@@ -204,6 +205,32 @@ func _test_tiers() -> void:
 	bad.clear_cache()
 	_check(bad.load_profile("orc").value.get_value("health") != 888, "a game name with / is skipped")
 	_check(_mk("npc").game == "mygame" and DotProfileSet.create("dot-npc", "", "npc").has_id("orc") == false, "no game id skips the game tier")
+
+
+func _test_plural_legacy() -> void:
+	_section("Singular dirs are canonical; addons/, games/, server/addons/, server/games/ are read with one WARN")
+	_clean()
+	DotCfgLegacy.reset()
+	_addon("npc/orc.yml", "health: 100\n")
+	_check(_mk().load_profile("orc").value.get_value("health") == 100 and DotCfgLegacy.warned_count() == 0, "a singular addon file is read with no warning")
+	_clean()
+	_w("addons/dot-npc/npc/orc.yml", "health: 120\nspeed: 9.0\n")
+	var r := _mk().load_profile("orc")
+	_check(r.ok and r.value.get_value("health") == 120 and r.value.get_value("speed") == 9.0, "cfg/addons/<addon>/ is still read")
+	_check(DotCfgLegacy.warned_count() == 1, "with one warning")
+	_addon("npc/orc.yml", "health: 130\n")
+	r = _mk().load_profile("orc")
+	_check(r.value.get_value("health") == 130, "both present: the singular file wins")
+	_check(r.value.get_value("speed") != 9.0, "whole: nothing of the plural file is merged")
+	_w("games/mygame/npc/orc.yml", "health: 140\n")
+	_check(_mk().load_profile("orc").value.get_value("health") == 140, "cfg/games/<game>/ is still read")
+	_w("server/addons/dot-npc/npc/orc.yml", "health: 150\n")
+	_check(_mk().load_profile("orc").value.get_value("health") == 150, "cfg/server/addons/<addon>/ is still read")
+	_w("server/games/mygame/npc/orc.yml", "health: 160\n")
+	_check(_mk().load_profile("orc").value.get_value("health") == 160, "cfg/server/games/<game>/ is still read")
+	_check(DotCfgLegacy.warned_count() == 4, "one warning per old path")
+	_clean()
+	DotCfgLegacy.reset()
 
 
 func _test_overrides() -> void:

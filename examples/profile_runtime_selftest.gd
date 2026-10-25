@@ -71,8 +71,8 @@ func _schema() -> Array:
 ## Fresh files, a server runtime on one side, a client on the other.
 func _world() -> Dictionary:
 	_clean()
-	_w("addons/dot-npc/npc/zombie.yml", "health: 50\nspeed: 2.5\n")
-	_w("addons/dot-npc/npc/ghoul.yml", "health: 20\n")
+	_w("addon/dot-npc/npc/zombie.yml", "health: 50\nspeed: 2.5\n")
+	_w("addon/dot-npc/npc/ghoul.yml", "health: 20\n")
 	var server_set := _mk()
 	var client_set := _mk()
 	var server := DotProfileRuntime.new()
@@ -280,7 +280,7 @@ func _test_audit() -> void:
 func _test_nested() -> void:
 	_section("edits survive extends and the cache")
 	var w := _world()
-	_w("addons/dot-npc/npc/boss.yml", "extends: zombie\nhealth: 500\n")
+	_w("addon/dot-npc/npc/boss.yml", "extends: zombie\nhealth: 500\n")
 	var server: DotProfileRuntime = w["server"]
 	var before: Variant = _val(w["ss"], "boss", "health")
 	server.handle_request("admin", _req("set", "zombie", "health", 1))

@@ -30,7 +30,7 @@ var broadcast: Callable = Callable()
 var send_to: Callable = Callable()
 ## `(actor) -> String` for the audit line; default is `str(actor)`.
 var actor_name: Callable = Callable()
-## Config root that [constant OP_SAVE] writes below (`<root>/server/game/<game>/` or `server/addons/<addon>/`, then `<kind>/<id>.yml`; `server/<kind>/` when the set has neither).
+## Config root that [constant OP_SAVE] writes below (`<root>/server/game/<game>/` or `server/addon/<addon>/`, then `<kind>/<id>.yml`; `server/<kind>/` when the set has neither).
 var save_root := "user://cfg"
 
 var _sets: Dictionary = {}
@@ -225,7 +225,7 @@ func _save(actor: Variant, set: DotProfileSet, id: String) -> DotResult:
 	if set.game != "":
 		base = base.path_join("game").path_join(set.game)
 	elif set.addon_name != "":
-		base = base.path_join("addons").path_join(set.addon_name)
+		base = base.path_join("addon").path_join(set.addon_name)
 	var file := base.path_join(set.rel_path).path_join(id + "." + DotProfileSet.EXTENSION)
 	var tree := {}
 	if FileAccess.file_exists(file):

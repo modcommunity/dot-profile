@@ -7,7 +7,7 @@ extends SceneTree
 ## [/codeblock]
 ##
 ## [code]<dir>[/code] is a repository (its [code]cfg/[/code] is read) or a cfg directory. Walks
-## [code]cfg/addons/*/<kind>/[/code], [code]cfg/game/*/<kind>/[/code] and [code]cfg/server/addons/*/<kind>/[/code], [code]cfg/server/game/*/<kind>/[/code] and the old [code]cfg/server/<kind>/[/code]
+## [code]cfg/addon/*/<kind>/[/code], [code]cfg/game/*/<kind>/[/code], [code]cfg/server/addon/*/<kind>/[/code] and [code]cfg/server/game/*/<kind>/[/code] (plus the plural names and the old [code]cfg/server/<kind>/[/code])
 ## and loads every profile through [DotProfileSet], so the verdict is the game's own: unknown
 ## keys (use [code]extra:[/code]), wrong types, out of range, NaN and infinity, a missing or
 ## cyclic [code]extends[/code], a malformed yml. On top of that: two files for one id,
@@ -140,17 +140,22 @@ func _check_root(dir: String) -> void:
 	if not DirAccess.dir_exists_absolute(cfg):
 		_error(dir, "no such directory")
 		return
-	for a in _subdirs(cfg.path_join("addons")):
-		_check_tier(cfg, "addon", a, cfg.path_join("addons").path_join(a))
-	for g in _subdirs(cfg.path_join("game")):
-		_check_tier(cfg, "game", g, cfg.path_join("game").path_join(g))
-	for a in _subdirs(cfg.path_join("server/addons")):
-		_check_tier(cfg, "server", a, cfg.path_join("server/addons").path_join(a))
-	for g in _subdirs(cfg.path_join("server/game")):
-		_check_tier(cfg, "server", g, cfg.path_join("server/game").path_join(g))
-	# Pre-mirror layout; `addons` and `game` are the mirror's folders, not kinds.
+	# The plural names are the shimmed layout; they are walked too, as the same tiers.
+	for bucket in ["addon", "addons"]:
+		for a in _subdirs(cfg.path_join(bucket)):
+			_check_tier(cfg, "addon", a, cfg.path_join(bucket).path_join(a))
+	for bucket in ["game", "games"]:
+		for g in _subdirs(cfg.path_join(bucket)):
+			_check_tier(cfg, "game", g, cfg.path_join(bucket).path_join(g))
+	for bucket in ["server/addon", "server/addons"]:
+		for a in _subdirs(cfg.path_join(bucket)):
+			_check_tier(cfg, "server", a, cfg.path_join(bucket).path_join(a))
+	for bucket in ["server/game", "server/games"]:
+		for g in _subdirs(cfg.path_join(bucket)):
+			_check_tier(cfg, "server", g, cfg.path_join(bucket).path_join(g))
+	# Pre-mirror layout; these are the mirror's folders, not kinds.
 	for kind in _subdirs(cfg.path_join("server")):
-		if kind != "addons" and kind != "game":
+		if not kind in ["addon", "addons", "game", "games"]:
 			_check_tier_kind(cfg, "server", "", cfg.path_join("server"), kind)
 
 
@@ -164,7 +169,7 @@ func _check_tier_kind(cfg: String, tier: String, owner_name: String, dir: String
 		if not _skip_unknown:
 			_error(dir.path_join(kind), "no schema for kind '%s' (add --schema, or a typo; --skip-unknown ignores it)" % kind)
 		return
-	var ctx := {"cfg": cfg, "tier": tier, "owner": owner_name, "server_owner": "addons" if dir.contains("/server/addons/") else ("game" if dir.contains("/server/game/") else "")}
+	var ctx := {"cfg": cfg, "tier": tier, "owner": owner_name, "server_owner": "addons" if (dir.contains("/server/addon/") or dir.contains("/server/addons/")) else ("game" if (dir.contains("/server/game/") or dir.contains("/server/games/")) else "")}
 	_check_dir(ctx, dir.path_join(kind), kind, _providers[kind]["schema"], _providers[kind]["children"])
 
 
@@ -211,11 +216,12 @@ func _add_id(ids: Dictionary, folded: Dictionary, dir: String, id: String, file:
 	ids[id] = file
 
 
-func _first_dir(cfg: String, bucket: String, rel: String) -> String:
-	var base := cfg.path_join(bucket)
-	for d in _subdirs(base):
-		if DirAccess.dir_exists_absolute(base.path_join(d).path_join(rel)):
-			return d
+func _first_dir(cfg: String, buckets: Array, rel: String) -> String:
+	for bucket in buckets:
+		var base := cfg.path_join(bucket)
+		for d in _subdirs(base):
+			if DirAccess.dir_exists_absolute(base.path_join(d).path_join(rel)):
+				return d
 	return ""
 
 
@@ -224,8 +230,8 @@ func _check_profile(ctx: Dictionary, _dir: String, rel: String, schema: Array, i
 	_files += 1
 	var tier: String = ctx["tier"]
 	var so: String = ctx.get("server_owner", "")
-	var addon: String = ctx["owner"] if (tier == "addon" or so == "addons") else _first_dir(ctx["cfg"], "addons", rel)
-	var game: String = ctx["owner"] if (tier == "game" or so == "game") else ("" if tier == "addon" else _first_dir(ctx["cfg"], "game", rel))
+	var addon: String = ctx["owner"] if (tier == "addon" or so == "addons") else _first_dir(ctx["cfg"], ["addon", "addons"], rel)
+	var game: String = ctx["owner"] if (tier == "game" or so == "game") else ("" if tier == "addon" else _first_dir(ctx["cfg"], ["game", "games"], rel))
 	var s := DotProfileSet.create(addon, game, rel, schema)
 	s.roots = PackedStringArray([ctx["cfg"]])
 	s.cmdline = PackedStringArray(["--"])

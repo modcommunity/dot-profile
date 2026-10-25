@@ -5,8 +5,8 @@ extends RefCounted
 ##
 ## One file per profile, `<kind>/<id>.yml`, or a folder `<kind>/<id>/<id>.yml` (or
 ## `profile.yml`) that may hold child sets (`<kind>/<id>/upgrades/<child>.yml`). Tiers, weakest
-## first: schema defaults < addon (`cfg/addons/<addon>/`) < game (`cfg/game/<game>/`) < server
-## (`cfg/server/addons/<addon>/`, then `cfg/server/game/<game>/`; the old `cfg/server/<kind>/` is shimmed) < environment < command line. A weaker tier's file may be overridden by a
+## first: schema defaults < addon (`cfg/addon/<addon>/`) < game (`cfg/game/<game>/`) < server
+## (`cfg/server/addon/<addon>/`, then `cfg/server/game/<game>/`; the plural `addons/`, `games/` names and the old `cfg/server/<kind>/` are shimmed) < environment < command line. A weaker tier's file may be overridden by a
 ## few keys of a stronger one. A player's `user` tier sits between game and server, on only in a
 ## solo or listen-host process. See docs/profiles.md.
 
@@ -25,7 +25,7 @@ const TIER_SERVER := "server"
 ## must never obey a file on the player's disk. The solo or listen-host game turns it on.
 static var user_tier_enabled := false
 
-## Owning addon (`cfg/addons/<addon>/`), empty to skip the addon tier.
+## Owning addon (`cfg/addon/<addon>/`), empty to skip the addon tier.
 var addon_name := ""
 ## Game id (`cfg/game/<game>/`), empty to skip the game tier.
 var game := ""
@@ -320,10 +320,14 @@ func _tier_dirs(rel: String = "") -> Dictionary:
 	if use_game and not _id_ok(game):
 		push_error("DotProfileSet: bad game name '%s'" % game)
 		use_game = false
-	# The pre-mirror cfg/server/<kind>/ is the weakest operator layer, then addons, then game.
-	var steps: Array = [[TIER_ADDON, "addons", use_addon, addon_name], [TIER_GAME, "game", use_game, game],
-		[TIER_SERVER, "server", true, ""], [TIER_SERVER, "server/addons", use_addon, addon_name],
-		[TIER_SERVER, "server/game", use_game, game]]
+	# [tier, dir under a root, used, name, singular dir that supersedes it or ""], weakest first: an old
+	# plural dir or the pre-mirror cfg/server/<kind>/ comes before the singular one that wins over it.
+	var steps: Array = [
+		[TIER_ADDON, "addons", use_addon, addon_name, "addon"], [TIER_ADDON, "addon", use_addon, addon_name, ""],
+		[TIER_GAME, "games", use_game, game, "game"], [TIER_GAME, "game", use_game, game, ""],
+		[TIER_SERVER, "server", true, "", "server-kind"],
+		[TIER_SERVER, "server/addons", use_addon, addon_name, "server/addon"], [TIER_SERVER, "server/addon", use_addon, addon_name, ""],
+		[TIER_SERVER, "server/games", use_game, game, "server/game"], [TIER_SERVER, "server/game", use_game, game, ""]]
 	for step in steps:
 		if not step[2]:
 			continue
@@ -335,12 +339,15 @@ func _tier_dirs(rel: String = "") -> Dictionary:
 			if not DirAccess.dir_exists_absolute(d):
 				continue
 			out[step[0]].append(d)
-			if step[1] == "server":
-				var mirror := ""
+			var mirror := ""
+			if step[4] == "server-kind":
 				if use_game:
 					mirror = root.path_join("server/game").path_join(game).path_join(rel)
 				elif use_addon:
-					mirror = root.path_join("server/addons").path_join(addon_name).path_join(rel)
+					mirror = root.path_join("server/addon").path_join(addon_name).path_join(rel)
+			elif step[4] != "":
+				mirror = root.path_join(step[4]).path_join(step[3]).path_join(rel)
+			if mirror != "":
 				_legacy_new[d] = mirror
 	return out
 
@@ -349,7 +356,7 @@ func _tier_dirs(rel: String = "") -> Dictionary:
 var _legacy_new: Dictionary = {}
 
 
-## False when [param p] sits in a pre-mirror `cfg/server/<kind>/` and [DotCfgLegacy] says not to read it.
+## False when [param p] sits in an old plural dir or a pre-mirror `cfg/server/<kind>/` and [DotCfgLegacy] says not to read it.
 func _legacy_ok(dir: String, p: String) -> bool:
 	if not _legacy_new.has(dir):
 		return true
