@@ -23,7 +23,11 @@ const TIER_SERVER := "server"
 
 ## Whether the user tier (`user://cfg/user/`) is read. Off: a dedicated server or a connected client
 ## must never obey a file on the player's disk. The solo or listen-host game turns it on.
-static var user_tier_enabled := false
+static var user_tier_enabled: bool:
+	get:
+		return DotAddonConfig.user_tier_enabled
+	set(value):
+		DotAddonConfig.user_tier_enabled = value
 
 ## Owning addon (`cfg/addon/<addon>/`), empty to skip the addon tier.
 var addon_name := ""
@@ -75,7 +79,6 @@ static func field(p_name: String, type: String, default: Variant = null, opts: D
 
 ## Turns the user tier on for a solo or listen-host process, off for a server or a connected client.
 static func set_user_tier(enabled: bool) -> void:
-	user_tier_enabled = enabled
 	DotAddonConfig.user_tier_enabled = enabled
 
 
@@ -153,7 +156,7 @@ func check_edit(id: String, path: String, value: Variant) -> DotResult:
 	var parts := path.split(".")
 	if path.is_empty() or parts.has(""):
 		return DotResult.fail(DotError.CODE_INVALID, "%s: " % id + "bad key path '%s'" % path)
-	if not _finite(value):
+	if not DotAddonConfig.is_finite_value(value):
 		return DotResult.fail(DotError.CODE_INVALID, "%s: " % id + "%s: NaN or infinity is refused" % path)
 	if DotAddonConfig._is_sensitive(parts[parts.size() - 1], sensitive):
 		return DotResult.fail(DotError.CODE_FORBIDDEN, "%s: " % id + "%s: secrets cannot be edited at runtime" % path)
@@ -171,7 +174,7 @@ func check_edit(id: String, path: String, value: Variant) -> DotResult:
 		if f["type"] != "dict" and f["type"] != "any":
 			return DotResult.fail(DotError.CODE_INVALID, "%s: " % id + "%s is not a mapping" % parts[0])
 		return DotResult.success({"path": path, "value": value})
-	var checked := _check_field(f, value)
+	var checked := DotAddonConfig.check_field(f, value)
 	if checked.has("error"):
 		return DotResult.fail(DotError.CODE_INVALID, "%s: " % id + "%s: %s" % [path, checked["error"]])
 	return DotResult.success({"path": path, "value": checked["value"]})
@@ -216,8 +219,8 @@ func save_user(id: String, paths: Dictionary) -> DotResult:
 		var ok := check_edit(id, String(path), paths[path])
 		if not ok.ok:
 			return ok
-		_set_path(tree, String(path).split("."), ok.value["value"])
-	var text: Variant = DotProfileRuntime._emit(tree, 0)
+		DotAddonConfig.set_nested(tree, String(path).split("."), ok.value["value"])
+	var text: Variant = DotYaml.emit(tree)
 	if text == null:
 		return DotResult.fail(DotError.CODE_INVALID, "%s/%s holds a value yml cannot carry" % [rel_path, id])
 	var dir := DotPaths.ensure_parent_dir(file)
@@ -469,19 +472,19 @@ func _load(id: String) -> DotResult:
 	for path in runtime.get(id, {}):
 		var parts: PackedStringArray = String(path).split(".")
 		if parts[0] == EXTRA_KEY and parts.size() > 1 and extra is Dictionary:
-			_set_path(extra, parts.slice(1), runtime[id][path])
+			DotAddonConfig.set_nested(extra, parts.slice(1), runtime[id][path])
 		elif names.has(parts[0]):
 			if parts.size() == 1:
 				values[parts[0]] = runtime[id][path]
 			elif values[parts[0]] is Dictionary:
-				_set_path(values[parts[0]], parts.slice(1), runtime[id][path])
+				DotAddonConfig.set_nested(values[parts[0]], parts.slice(1), runtime[id][path])
 			supplied[parts[0]] = true
 	for k in names:
 		var f: Dictionary = names[k]
 		if f.get("required", false) and not supplied[k]:
 			errors.append("%s: required" % k)
 			continue
-		var checked := _check_field(f, values[k])
+		var checked := DotAddonConfig.check_field(f, values[k])
 		if checked.has("error"):
 			errors.append("%s: %s" % [k, checked["error"]])
 		else:
@@ -552,74 +555,3 @@ static func _flatten(tree: Dictionary, prefix: String, out: Dictionary) -> void:
 			_flatten(tree[k], key + ".", out)
 		else:
 			out[key] = tree[k]
-
-
-static func _set_path(root: Dictionary, parts: PackedStringArray, value: Variant) -> void:
-	var at := root
-	for i in parts.size() - 1:
-		if not (at.get(parts[i]) is Dictionary):
-			at[parts[i]] = {}
-		at = at[parts[i]]
-	at[parts[parts.size() - 1]] = value.duplicate(true) if value is Array or value is Dictionary else value
-
-
-## False when [param v] is, or holds, NaN or infinity.
-static func _finite(v: Variant) -> bool:
-	if v is float:
-		return is_finite(v)
-	if v is Array:
-		for e in v:
-			if not _finite(e):
-				return false
-	elif v is Dictionary:
-		for k in v:
-			if not _finite(v[k]):
-				return false
-	return true
-
-
-## {value} or {error} after type, enum and range checks.
-func _check_field(f: Dictionary, v: Variant) -> Dictionary:
-	var t: String = f["type"]
-	var out: Variant = v
-	if v == null and not f.get("required", false) and f.get("default") == null:
-		return {"value": null}
-	match t:
-		"int":
-			if v is int:
-				out = v
-			elif v is float and is_finite(v) and v == floorf(v):
-				out = int(v)
-			else:
-				return {"error": "expected int, got %s" % str(v)}
-		"float":
-			if (v is int or v is float) and _finite(v):
-				out = float(v)
-			else:
-				return {"error": "expected float, got %s" % str(v)}
-		"string":
-			if v is String or v is StringName:
-				out = String(v)
-			else:
-				return {"error": "expected string, got %s" % str(v)}
-		"bool":
-			if not (v is bool):
-				return {"error": "expected bool, got %s" % str(v)}
-		"list":
-			if not (v is Array):
-				return {"error": "expected list, got %s" % str(v)}
-		"dict":
-			if not (v is Dictionary):
-				return {"error": "expected mapping, got %s" % str(v)}
-		"any":
-			pass
-		_:
-			return {"error": "schema type '%s' is unknown" % t}
-	if t == "int" or t == "float":
-		if f.has("min") and out < f["min"]:
-			return {"error": "%s is below min %s" % [str(out), str(f["min"])]}
-		if f.has("max") and out > f["max"]:
-			return {"error": "%s is above max %s" % [str(out), str(f["max"])]}
-	if f.has("enum") and not (f["enum"] as Array).has(out):
-		return {"error": "%s is not one of %s" % [str(out), str(f["enum"])]}
-	return {"value": out}

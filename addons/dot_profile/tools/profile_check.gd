@@ -3,7 +3,7 @@ extends SceneTree
 ## Checks every profile yml under a repository's cfg/ against its schema, with no game running.
 ##
 ## [codeblock]
-## godot --headless --path . --script addons/dot_core/tools/profile_check.gd -- <dir>... [--schema <script>]... [--skip-unknown]
+## godot --headless --path . --script addons/dot_profile/tools/profile_check.gd -- <dir>... [--schema <script>]... [--skip-unknown]
 ## [/codeblock]
 ##
 ## [code]<dir>[/code] is a repository (its [code]cfg/[/code] is read) or a cfg directory. Walks

@@ -33,7 +33,7 @@ func _on_record(rec: Dictionary) -> void:
 
 
 func _run() -> void:
-	_line("dot-core profile runtime self-test")
+	_line("dot-profile profile runtime self-test")
 	_clean()
 	_test_edit()
 	_test_refused()

@@ -21,7 +21,7 @@ func _ready() -> void:
 
 
 func _run() -> void:
-	_line("dot-core profile self-test")
+	_line("dot-profile profile self-test")
 	_clean()
 	_test_schema()
 	_test_extends()

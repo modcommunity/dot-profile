@@ -8,7 +8,7 @@ extends Node
 ## godot --headless --path . res://examples/profile_check_selftest.tscn
 ## [/codeblock]
 
-const TOOL := "res://addons/dot_core/tools/profile_check.gd"
+const TOOL := "res://addons/dot_profile/tools/profile_check.gd"
 const DUP := "res://examples/profile_check_dup_schema.gd"
 const BADSCHEMA := "res://examples/profile_check_bad_schema.gd"
 const BASE := "user://profile_check_selftest"
@@ -52,7 +52,7 @@ var _failed := 0
 
 
 func _ready() -> void:
-	print("dot-core profile_check self-test")
+	print("dot-profile profile_check self-test")
 	var root := ProjectSettings.globalize_path(BASE)
 	for f in BAD:
 		_write(root, f, BAD[f])

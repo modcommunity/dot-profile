@@ -17,7 +17,7 @@ var _section_count := 0
 
 func _ready() -> void:
 	DotLog.set_level(DotLog.Level.FATAL)
-	_line("dot-core user tier self-test")
+	_line("dot-profile user tier self-test")
 	_clean()
 	_test_precedence()
 	_test_disabled()

@@ -1,0 +1,18 @@
+# Godot 4
+.godot/
+
+# dot-core is a separate repository, linked for local development and for the suites:
+#   ln -s ../../dot-core/addons/dot_core addons/dot_core
+# The link must stay ignored: a committed symlink is checked out as a text FILE on Windows.
+/addons/dot_core
+
+# Exports
+build/
+export_presets.cfg
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/

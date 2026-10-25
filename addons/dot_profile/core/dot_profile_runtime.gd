@@ -235,8 +235,8 @@ func _save(actor: Variant, set: DotProfileSet, id: String) -> DotResult:
 		if existing.value is Dictionary:
 			tree = existing.value
 	for path in paths:
-		DotProfileSet._set_path(tree, String(path).split("."), paths[path])
-	var text := _emit(tree, 0)
+		DotAddonConfig.set_nested(tree, String(path).split("."), paths[path])
+	var text: Variant = DotYaml.emit(tree)
 	if text == null:
 		return DotResult.fail(DotError.CODE_INVALID, "%s/%s holds a value yml cannot carry" % [set.rel_path, id])
 	var dir := DotPaths.ensure_parent_dir(file)
@@ -247,39 +247,3 @@ func _save(actor: Variant, set: DotProfileSet, id: String) -> DotResult:
 		return wrote.wrap("saving %s" % file)
 	DotLog.info(CHANNEL, "profile saved to server layer", {"who": _who(actor), "kind": set.rel_path, "id": id, "file": file, "keys": paths.size()})
 	return DotResult.success({"saved": file})
-
-
-## yml text for [param tree], or null when a value is not a scalar, list of scalars or map.
-static func _emit(tree: Dictionary, depth: int) -> Variant:
-	var out := ""
-	var pad := "  ".repeat(depth)
-	for k in tree:
-		var v: Variant = tree[k]
-		if v is Dictionary:
-			var inner: Variant = _emit(v, depth + 1)
-			if inner == null:
-				return null
-			out += "%s%s:\n%s" % [pad, k, inner]
-			continue
-		var s: Variant = _scalar(v)
-		if s == null:
-			return null
-		out += "%s%s: %s\n" % [pad, k, s]
-	return out
-
-
-static func _scalar(v: Variant) -> Variant:
-	if v is Array:
-		var parts := PackedStringArray()
-		for e in v:
-			if e is Array or e is Dictionary:
-				return null
-			parts.append(_scalar(e))
-		return "[" + ", ".join(parts) + "]"
-	if v is bool or v is int:
-		return str(v)
-	if v is float:
-		return str(v) if str(v).contains(".") or str(v).contains("e") else str(v) + ".0"
-	if v is String or v is StringName:
-		return "\"" + String(v).replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n") + "\""
-	return null
