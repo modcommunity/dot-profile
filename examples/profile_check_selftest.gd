@@ -18,6 +18,8 @@ const GOOD := {
 	"cfg/addon/pk/thing/folder/folder.yml": "hp: 5\n",
 	"cfg/addon/pk/thing/folder/opt/one.yml": "cost: 3\n",
 	"cfg/game/gm/thing/ok.yml": "hp: 40\n",
+	"addons/cfgonly/plugin.cfg": "",
+	"cfg/game/gm/cfgonly/anything.yml": "whatever: 1\n",
 }
 const BAD := {
 	"cfg/addon/pk/thing/typo.yml": "hpp: 5\n",

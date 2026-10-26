@@ -19,7 +19,7 @@ extends SceneTree
 ## a game's own, once the project is imported), and [code]--schema <script>[/code] adds one more.
 ## The Dictionary maps a kind to a field Array, or to
 ## [code]{"schema": [...], "children": {name: [...]}}[/code]. Two providers for one kind, or a
-## malformed return, is an error. A kind with no schema is an error unless [code]--skip-unknown[/code].
+## malformed return, is an error. A kind with no schema is an error unless [code]--skip-unknown[/code]; a folder named after an addon under the project's [code]addons/[/code] is that addon's config, not a kind, and is skipped.
 ##
 ## Prints one [code]path: message[/code] line per problem and [code]PROFILE_CHECK files N errors M[/code];
 ## exits 1 on any error. No [code]class_name[/code]: it adds no global.
@@ -166,6 +166,9 @@ func _check_tier(cfg: String, tier: String, owner_name: String, dir: String) -> 
 
 func _check_tier_kind(cfg: String, tier: String, owner_name: String, dir: String, kind: String) -> void:
 	if not _providers.has(kind):
+		# A folder named after an addon the project links is that addon's own config (DotAddonConfig), not a profile kind.
+		if DirAccess.dir_exists_absolute(cfg.get_base_dir().path_join("addons").path_join(kind)):
+			return
 		if not _skip_unknown:
 			_error(dir.path_join(kind), "no schema for kind '%s' (add --schema, or a typo; --skip-unknown ignores it)" % kind)
 		return
