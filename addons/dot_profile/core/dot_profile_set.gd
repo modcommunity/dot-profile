@@ -12,6 +12,8 @@ extends RefCounted
 
 const CHANNEL := "profile"
 const EXTENSION := "yml"
+## A server-tier file `<id>.deleted` hides a profile that a lower tier ships.
+const TOMBSTONE := "deleted"
 const FOLDER_FILE := "profile"
 ## Top-level key that holds keys the schema does not know; passed through untouched.
 const EXTRA_KEY := "extra"
@@ -45,6 +47,10 @@ var sensitive := PackedStringArray()
 var override_prefix := "profile"
 ## Ids that exist with no file on disk: every field at its default until a file or the runtime layer says otherwise.
 var implicit_ids := PackedStringArray()
+## Ids made at runtime by [method add_id]: they exist from the runtime layer alone until saved.
+var added_ids := PackedStringArray()
+## Ids removed at runtime by [method remove_id], hidden from listing and loading.
+var removed_ids := PackedStringArray()
 ## Config roots, weakest first. Empty means [method default_roots].
 var roots := PackedStringArray()
 ## Command-line arguments to read overrides from; empty means the process's own.
@@ -109,6 +115,11 @@ func list_ids() -> PackedStringArray:
 					seen[sub] = true
 	for id in implicit_ids:
 		seen[id] = true
+	for id in added_ids:
+		seen[id] = true
+	for id in seen.keys():
+		if is_removed(id):
+			seen.erase(id)
 	var out := PackedStringArray(seen.keys())
 	out.sort()
 	return out
@@ -116,13 +127,53 @@ func list_ids() -> PackedStringArray:
 
 ## True when some tier has a file for [param id].
 func has_id(id: String) -> bool:
-	return _id_ok(id) and (implicit_ids.has(id) or not _files_for(id).is_empty())
+	return _id_ok(id) and not is_removed(id) and (implicit_ids.has(id) or added_ids.has(id) or not _files_for(id).is_empty())
+
+
+## True when [param id] was removed: at runtime, or by a `<id>.deleted` marker in the server tier.
+func is_removed(id: String) -> bool:
+	if removed_ids.has(id):
+		return true
+	for d in _tier_dirs()[TIER_SERVER]:
+		if FileAccess.file_exists(d.path_join(id + "." + TOMBSTONE)):
+			return true
+	return false
+
+
+## Makes a new profile [param id] that exists in the runtime layer only. Refuses a taken or bad id.
+func add_id(id: String) -> DotResult:
+	if not _id_ok(id):
+		return DotResult.fail(DotError.CODE_INVALID, "bad profile id")
+	if has_id(id):
+		return DotResult.fail(DotError.CODE_INVALID, "%s/%s: already exists" % [rel_path, id])
+	removed_ids.erase(id)
+	if not added_ids.has(id):
+		added_ids.append(id)
+	_cache.erase(id)
+	return DotResult.success(id)
+
+
+## Hides [param id] and drops its runtime layer. Files in lower tiers are not touched (see
+## [method DotProfileRuntime.handle_request] for the file side).
+func remove_id(id: String) -> DotResult:
+	if not has_id(id):
+		return DotResult.fail(DotError.CODE_INVALID, "%s/%s: no such profile" % [rel_path, id])
+	var at := added_ids.find(id)
+	if at >= 0:
+		added_ids.remove_at(at)
+	if not removed_ids.has(id):
+		removed_ids.append(id)
+	runtime.erase(id)
+	_cache.erase(id)
+	return DotResult.success(id)
 
 
 ## Loads, extends-resolves, overrides and validates one profile. Value: a [DotProfile].
 func load_profile(id: String) -> DotResult:
 	if _cache.has(id):
 		return DotResult.success(_cache[id])
+	if is_removed(id):
+		return DotResult.fail(DotError.CODE_INVALID, "%s/%s: removed" % [rel_path, id])
 	var res := _load(id)
 	if res.ok:
 		_cache[id] = res.value
@@ -391,7 +442,7 @@ func _raw(id: String, visiting: PackedStringArray) -> DotResult:
 	if not _id_ok(id):
 		return _fail(DotError.CODE_INVALID, id, "bad profile id")
 	var files := _files_for(id)
-	if files.is_empty() and not implicit_ids.has(id):
+	if files.is_empty() and not implicit_ids.has(id) and not added_ids.has(id):
 		return _fail(DotError.CODE_INVALID, id, "no such profile")
 	var merged := {}
 	var sources := PackedStringArray()

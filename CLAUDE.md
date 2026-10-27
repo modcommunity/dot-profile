@@ -17,6 +17,7 @@
 | --- | --- |
 | `addons/dot_profile/core/dot_profile_set.gd`, `dot_profile.gd` | the set (tiers read weakest first, schema, `extends`, `extra:`, folders, overrides) and one loaded profile |
 | `addons/dot_profile/core/dot_profile_runtime.gd` | permission-gated, validated, replicated live edits; save to the server layer |
+| | `add` and `delete` ops: a new profile lives in the runtime layer until saved; a delete removes the server file and, for a profile a lower tier ships, writes a `<id>.deleted` marker beside it that hides it (adding the id again removes the marker) |
 | `addons/dot_profile/tools/profile_check.gd` | headless validator (no `class_name`): `-- <repo> [--schema script] [--skip-unknown]`; dot-ci `profiles: true` |
 | `examples/` | `profile_selftest`, `profile_runtime_selftest`, `profile_check_selftest`, `user_tier_selftest` |
 

@@ -6,8 +6,8 @@ extends Node
 ## godot --headless --path . res://examples/profile_runtime_selftest.tscn
 ## [/codeblock]
 
-const SECTIONS := 9
-const CHECKS := 68
+const SECTIONS := 10
+const CHECKS := 85
 const BASE := "user://profile_runtime_selftest"
 
 var _passed := 0
@@ -44,6 +44,7 @@ func _run() -> void:
 	_test_save()
 	_test_audit()
 	_test_nested()
+	_test_add_delete()
 	_clean()
 	DotLog.remove_sink(_sink)
 
@@ -291,6 +292,41 @@ func _test_nested() -> void:
 
 
 # --- Harness -----------------------------------------------------------------
+
+func _test_add_delete() -> void:
+	_section("profiles are added, replicated, saved, deleted and brought back")
+	var w := _world()
+	var server: DotProfileRuntime = w["server"]
+	var client: DotProfileRuntime = w["client"]
+	var ss: DotProfileSet = w["ss"]
+	var cs: DotProfileSet = w["cs"]
+	var before := ss.list_ids().size()
+	var r := server.handle_request("admin", _req("add", "wraith", "", {"health": 77, "mode": "ranged"}))
+	_check(r.ok and ss.has_id("wraith") and ss.list_ids().size() == before + 1, "add makes a new profile that lists")
+	_check(_val(ss, "wraith", "health") == 77 and _val(ss, "wraith", "speed") == 3.0, "it starts from the given keys over the defaults")
+	_check(not server.handle_request("admin", _req("add", "wraith")).ok, "adding a taken id is refused")
+	_check(not server.handle_request("admin", _req("add", "../x")).ok, "a path as an id is refused")
+	_check(not server.handle_request("admin", _req("add", "bad", "", {"nope": 1})).ok and not ss.has_id("bad"), "an unknown key leaves nothing behind")
+	_check(not server.handle_request("mod", _req("add", "mine")).ok == false, "a cvar-flag actor may add")
+	_check(not server.handle_request("nobody", _req("add", "other")).ok and not ss.has_id("other"), "an actor with no flag may not")
+	client.apply_row(_sent[0])
+	_check(cs.has_id("wraith") and _val(cs, "wraith", "health") == 77, "a client learns the new profile from its row")
+	var saved := server.handle_request("admin", _req("save", "wraith"))
+	_check(saved.ok and FileAccess.file_exists(BASE.path_join("server/game/mygame/npc/wraith.yml")), "save writes the new profile's file")
+	var fresh := _mk()
+	_check(fresh.has_id("wraith") and fresh.load_profile("wraith").value.get_value("health") == 77, "a fresh set finds it on disk")
+	var gone := server.handle_request("admin", _req("delete", "wraith"))
+	_check(gone.ok and not ss.has_id("wraith") and not ss.list_ids().has("wraith"), "delete removes it from the list")
+	_check(not FileAccess.file_exists(BASE.path_join("server/game/mygame/npc/wraith.yml")) and not _mk().has_id("wraith"), "and its server file")
+	_check(not ss.load_profile("wraith").ok, "a deleted profile no longer loads")
+	client.apply_row(_sent[_sent.size() - 1])
+	_check(not cs.has_id("wraith"), "a client drops it from the delete row")
+	var shipped := server.handle_request("admin", _req("delete", "ghoul"))
+	_check(shipped.ok and not _mk().has_id("ghoul") and not _mk().list_ids().has("ghoul"), "a shipped profile is hidden by a marker, and stays hidden for a fresh set")
+	var back := server.handle_request("admin", _req("add", "ghoul", "", {"health": 5}))
+	_check(back.ok and not FileAccess.file_exists(BASE.path_join("server/game/mygame/npc/ghoul.deleted")) and ss.has_id("ghoul") and _val(ss, "ghoul", "health") == 5, "a deleted id can be added again")
+	_check(not server.handle_request("admin", _req("delete", "missing")).ok, "deleting what is not there is refused")
+
 
 func _w(rel: String, text: String) -> void:
 	var path := BASE.path_join(rel)

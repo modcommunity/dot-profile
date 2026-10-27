@@ -14,6 +14,10 @@ const OP_SET := "set"
 const OP_RESET_KEY := "reset_key"
 const OP_RESET := "reset"
 const OP_SAVE := "save"
+## Makes a new profile (`key` unused; `value` an optional `{path: value}` to start from).
+const OP_ADD := "add"
+## Removes a profile; the server tier loses its file, a shipped one is hidden by a marker.
+const OP_DELETE := "delete"
 
 ## A profile's runtime layer changed (edit, reset, or a newer row from the server).
 signal profile_changed(kind: String, id: String, revision: int)
@@ -62,11 +66,13 @@ func handle_request(actor: Variant, req: Dictionary) -> DotResult:
 	if not permit.is_valid() or not bool(permit.call(actor, flag)):
 		DotLog.warn(CHANNEL, "profile edit denied", {"who": _who(actor), "op": op, "kind": kind, "id": id})
 		return DotResult.fail(DotError.CODE_FORBIDDEN, "profile edits need '%s'" % flag)
-	if not [OP_SET, OP_RESET_KEY, OP_RESET, OP_SAVE].has(op):
+	if not [OP_SET, OP_RESET_KEY, OP_RESET, OP_SAVE, OP_ADD, OP_DELETE].has(op):
 		return DotResult.fail(DotError.CODE_INVALID, "unknown profile op '%s'" % op)
 	if not _sets.has(kind):
 		return DotResult.fail(DotError.CODE_INVALID, "unknown profile kind '%s'" % kind)
 	var set: DotProfileSet = _sets[kind]
+	if op == OP_ADD:
+		return _add(actor, set, id, req.get("value"))
 	if not set.has_id(id):
 		return DotResult.fail(DotError.CODE_INVALID, "%s/%s: no such profile" % [kind, id])
 	match op:
@@ -76,6 +82,8 @@ func handle_request(actor: Variant, req: Dictionary) -> DotResult:
 			return _reset_key(actor, set, id, str(req.get("key", "")))
 		OP_RESET:
 			return _commit(actor, set, id, {}, "reset", "", null)
+		OP_DELETE:
+			return _delete(actor, set, id)
 		_:
 			return _save(actor, set, id)
 
@@ -91,6 +99,14 @@ func apply_row(row: Dictionary) -> DotResult:
 	if int(rev) <= revision(kind, id):
 		return DotResult.success(false)
 	var set: DotProfileSet = _sets[kind]
+	if bool(row.get("removed", false)):
+		if set.has_id(id):
+			var _gone := set.remove_id(id)
+		_rev[_key(kind, id)] = int(rev)
+		profile_changed.emit(kind, id, int(rev))
+		return DotResult.success(true)
+	if not set.has_id(id):
+		var _made := set.add_id(id)
 	var before := set.runtime_paths(id)
 	set.set_runtime(id, paths)
 	var loaded := set.load_profile(id)
@@ -154,7 +170,84 @@ func _who(actor: Variant) -> String:
 
 
 func _row(kind: String, id: String) -> Dictionary:
-	return {"kind": kind, "id": id, "rev": revision(kind, id), "paths": (_sets[kind] as DotProfileSet).runtime_paths(id)}
+	var set: DotProfileSet = _sets[kind]
+	var row := {"kind": kind, "id": id, "rev": revision(kind, id), "paths": set.runtime_paths(id)}
+	if set.removed_ids.has(id):
+		row["removed"] = true
+	return row
+
+
+func _add(actor: Variant, set: DotProfileSet, id: String, start: Variant) -> DotResult:
+	var paths := {}
+	if start is Dictionary:
+		paths = (start as Dictionary).duplicate(true)
+	var mark := _server_file(set, id).get_basename() + "." + DotProfileSet.TOMBSTONE
+	if FileAccess.file_exists(mark) and not set.has_id(id) and set._id_ok(id):
+		var _lifted := DirAccess.remove_absolute(mark)
+	var made := set.add_id(id)
+	if not made.ok:
+		return made
+	for path in paths:
+		var checked := set.check_edit(id, String(path), paths[path])
+		if not checked.ok:
+			set.added_ids.remove_at(set.added_ids.find(id))
+			return checked
+		paths[path] = checked.value["value"]
+	set.set_runtime(id, paths)
+	var loaded := set.load_profile(id)
+	if not loaded.ok:
+		set.set_runtime(id, {})
+		set.added_ids.remove_at(set.added_ids.find(id))
+		return loaded
+	return _announce(actor, set, id, "add")
+
+
+func _delete(actor: Variant, set: DotProfileSet, id: String) -> DotResult:
+	var kind := set.rel_path
+	var file := _server_file(set, id)
+	var shipped := false
+	for f: Dictionary in set._files_for(id):
+		if f["path"] != file:
+			shipped = true
+	if FileAccess.file_exists(file):
+		var err := DirAccess.remove_absolute(file)
+		if err != OK:
+			return DotResult.fail(DotError.CODE_IO, "cannot remove %s" % file)
+	var gone := set.remove_id(id)
+	if not gone.ok:
+		return gone
+	var mark := file.get_basename() + "." + DotProfileSet.TOMBSTONE
+	if shipped:
+		var dir := DotPaths.ensure_parent_dir(mark)
+		if not dir.ok:
+			return dir
+		var wrote := DotPaths.write_text(mark, "deleted\n")
+		if not wrote.ok:
+			return wrote.wrap("marking %s deleted" % id)
+	DotWeb.sync_filesystem()
+	return _announce(actor, set, id, "delete")
+
+
+func _announce(actor: Variant, set: DotProfileSet, id: String, what: String) -> DotResult:
+	var kind := set.rel_path
+	var rev := revision(kind, id) + 1
+	_rev[_key(kind, id)] = rev
+	DotLog.info(CHANNEL, "profile %s" % what, {"who": _who(actor), "op": what, "kind": kind, "id": id, "rev": rev})
+	var row := _row(kind, id)
+	if broadcast.is_valid():
+		broadcast.call(row)
+	profile_changed.emit(kind, id, rev)
+	return DotResult.success(row)
+
+
+## The server-tier file [constant OP_SAVE] writes for [param id].
+func _server_file(set: DotProfileSet, id: String) -> String:
+	var base := save_root.path_join("server")
+	if set.game != "":
+		base = base.path_join("game").path_join(set.game)
+	elif set.addon_name != "":
+		base = base.path_join("addon").path_join(set.addon_name)
+	return base.path_join(set.rel_path).path_join(id + "." + DotProfileSet.EXTENSION)
 
 
 func _effective(set: DotProfileSet, id: String, path: String) -> Variant:
@@ -215,18 +308,13 @@ func _commit(actor: Variant, set: DotProfileSet, id: String, paths: Dictionary, 
 
 func _save(actor: Variant, set: DotProfileSet, id: String) -> DotResult:
 	var paths := set.runtime_paths(id)
-	if paths.is_empty():
+	if paths.is_empty() and not set.added_ids.has(id):
 		return DotResult.fail(DotError.CODE_STATE, "%s/%s has no runtime edits to save" % [set.rel_path, id])
 	for part in [set.game, set.addon_name]:
 		if part != "" and not set._id_ok(part):
 			push_error("DotProfileRuntime: bad game or addon name '%s'" % part)
 			return DotResult.fail(DotError.CODE_INVALID, "bad game or addon name '%s'" % part)
-	var base := save_root.path_join("server")
-	if set.game != "":
-		base = base.path_join("game").path_join(set.game)
-	elif set.addon_name != "":
-		base = base.path_join("addon").path_join(set.addon_name)
-	var file := base.path_join(set.rel_path).path_join(id + "." + DotProfileSet.EXTENSION)
+	var file := _server_file(set, id)
 	var tree := {}
 	if FileAccess.file_exists(file):
 		var existing := DotYaml.parse_file(file)
