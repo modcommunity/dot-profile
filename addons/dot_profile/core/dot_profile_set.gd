@@ -61,6 +61,8 @@ var user_root := "user://cfg"
 ## Runtime layer, above every file tier: profile id -> {dotted path: value}. Written by
 ## [DotProfileRuntime]; `extra.a.b` paths land in `extra`, `stats.hp` in a dict field.
 var runtime: Dictionary = {}
+## Optional `func(profile: DotProfile) -> DotResult`, run after the schema on every load: the keys a schema cannot say (a map's contents). A failure refuses the load, so a live edit that breaks it is rolled back.
+var validator: Callable = Callable()
 
 var _cache: Dictionary = {}
 
@@ -175,6 +177,8 @@ func load_profile(id: String) -> DotResult:
 	if is_removed(id):
 		return DotResult.fail(DotError.CODE_INVALID, "%s/%s: removed" % [rel_path, id])
 	var res := _load(id)
+	if res.ok and validator.is_valid():
+		res = validator.call(res.value)
 	if res.ok:
 		_cache[id] = res.value
 	return res
