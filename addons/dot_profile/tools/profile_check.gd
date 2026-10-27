@@ -12,7 +12,7 @@ extends SceneTree
 ## keys (use [code]extra:[/code]), wrong types, out of range, NaN and infinity, a missing or
 ## cyclic [code]extends[/code], a malformed yml. On top of that: two files for one id,
 ## [code].yaml[/code] files (never read), a folder profile with no file of its own, and child
-## folders with no schema.
+## folders with no schema. An entry may add `"validator": Callable` (a [DotProfileSet] validator) for checks a schema cannot make.
 ##
 ## [b]Schemas[/b] live in code. Every registered global class whose script defines
 ## [code]static func profile_schemas() -> Dictionary[/code] is a provider (dot-weapon, dot-npc and
@@ -120,7 +120,7 @@ func _register(s: Script, label: String) -> void:
 		if _providers.has(kind):
 			_error(label, "kind '%s' is also provided by %s" % [kind, _providers[kind]["source"]])
 			continue
-		_providers[kind] = {"schema": entry["schema"], "children": entry.get("children", {}), "source": label}
+		_providers[kind] = {"schema": entry["schema"], "children": entry.get("children", {}), "source": label, "validator": entry.get("validator", Callable())}
 
 
 func _valid_entry(entry: Variant) -> bool:
@@ -239,6 +239,8 @@ func _check_profile(ctx: Dictionary, _dir: String, rel: String, schema: Array, i
 	s.roots = PackedStringArray([ctx["cfg"]])
 	s.cmdline = PackedStringArray(["--"])
 	s.override_prefix = "profile_check_unused"
+	if _providers.has(rel):
+		s.validator = _providers[rel].get("validator", Callable())
 	var res := s.load_profile(id)
 	if not res.ok:
 		_error(file, res.error.message + ((": " + res.error.detail) if res.error.detail != "" else ""))

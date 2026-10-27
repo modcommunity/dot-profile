@@ -36,14 +36,14 @@ static func schema() -> Array:
 		f.call("open_seconds", "float", 0.0, {"min": 0.0, "max": 30.0}),
 		f.call("lifetime", "float", 0.0, {"min": 0.0, "max": 3600.0}),
 		f.call("params", "dict", {}),
-		f.call("outcomes", "list", []),
+		f.call("outcomes", "list", [], {"items": "dict"}),
 		f.call("sounds", "dict", {}),
 		f.call("meta", "dict", {}),
 	]
 
 
 static func profile_schemas() -> Dictionary:
-	return {KIND: {"schema": schema(), "children": {}}}
+	return {KIND: {"schema": schema(), "children": {}, "validator": Callable(DotBoxProfiles, "check")}}
 
 
 static func make_set(game: String, roots: PackedStringArray = PackedStringArray()) -> DotProfileSet:
