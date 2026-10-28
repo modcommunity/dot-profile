@@ -2,9 +2,8 @@ class_name DotBoxProfiles
 extends RefCounted
 
 ## The `box` profile kind: a random box type (looks, odds, outcomes, timed effect, sounds) as one yml per type.
-##
-## Paths: cfg/addon/dot-profile/box, cfg/game/<game>/box, cfg/server/... as every kind. The game ships its types as game-tier files; an operator
-## edits one live in the workbench. Outcomes and actions are the game's own vocabulary and are validated by the game, not here.
+## Paths as every kind (cfg/addon/dot-profile/box, cfg/game/<game>/box, ...); the game ships its types as game-tier files.
+## Outcomes and actions are the game's own vocabulary and are validated by the game, not here.
 
 const ADDON := "dot-profile"
 const KIND := "box"

@@ -1,10 +1,7 @@
 extends Node
 
 ## Exercises the [DotProfileSet] user tier: precedence, off by default and when connected, write, reset, listing.
-##
-## [codeblock]
-## godot --headless --path . res://examples/user_tier_selftest.tscn
-## [/codeblock]
+## Run: godot --headless --path . res://examples/user_tier_selftest.tscn
 
 const SECTIONS := 7
 const CHECKS := 40

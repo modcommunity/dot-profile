@@ -1,14 +1,9 @@
 class_name DotProfileSet
 extends RefCounted
 
-## A directory of per-entity profiles (NPCs, weapons, classes): lists, loads and validates them.
-##
-## One file per profile, `<kind>/<id>.yml`, or a folder `<kind>/<id>/<id>.yml` (or
-## `profile.yml`) that may hold child sets (`<kind>/<id>/upgrades/<child>.yml`). Tiers, weakest
-## first: schema defaults < addon (`cfg/addon/<addon>/`) < game (`cfg/game/<game>/`) < server
-## (`cfg/server/addon/<addon>/`, then `cfg/server/game/<game>/`; the plural `addons/`, `games/` names and the old `cfg/server/<kind>/` are shimmed) < environment < command line. A weaker tier's file may be overridden by a
-## few keys of a stronger one. A player's `user` tier sits between game and server, on only in a
-## solo or listen-host process. See docs/profiles.md.
+## A directory of per-entity profiles (NPCs, weapons, classes): lists, loads and validates them. See docs/profiles.md.
+## One file per profile (`<kind>/<id>.yml`, or a folder with child sets). Tiers, weakest first: schema defaults < addon < game
+## < server < environment < command line; a stronger tier overrides single keys. The player `user` tier sits between game and server.
 
 const CHANNEL := "profile"
 const EXTENSION := "yml"
@@ -351,7 +346,7 @@ func describe_lines() -> PackedStringArray:
 	return out
 
 
-# --- Internals -------------------------------------------------------------
+# Internals
 
 func _id_ok(id: String) -> bool:
 	return not (id.strip_edges().is_empty() or id.contains("/") or id.contains("\\") or id.contains(":") or id.contains(".."))

@@ -1,12 +1,8 @@
 extends Node
 
 ## Runs tools/profile_check.gd as a separate process over a fixture written to user://.
-##
 ## Armed by construction: every bad file must be named, every good one must not be.
-##
-## [codeblock]
-## godot --headless --path . res://examples/profile_check_selftest.tscn
-## [/codeblock]
+## Run: godot --headless --path . res://examples/profile_check_selftest.tscn
 
 const TOOL := "res://addons/dot_profile/tools/profile_check.gd"
 const DUP := "res://examples/profile_check_dup_schema.gd"

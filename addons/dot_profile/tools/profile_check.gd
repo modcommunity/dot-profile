@@ -1,28 +1,8 @@
 extends SceneTree
 
-## Checks every profile yml under a repository's cfg/ against its schema, with no game running.
-##
-## [codeblock]
-## godot --headless --path . --script addons/dot_profile/tools/profile_check.gd -- <dir>... [--schema <script>]... [--skip-unknown]
-## [/codeblock]
-##
-## [code]<dir>[/code] is a repository (its [code]cfg/[/code] is read) or a cfg directory. Walks
-## [code]cfg/addon/*/<kind>/[/code], [code]cfg/game/*/<kind>/[/code], [code]cfg/server/addon/*/<kind>/[/code] and [code]cfg/server/game/*/<kind>/[/code] (plus the plural names and the old [code]cfg/server/<kind>/[/code])
-## and loads every profile through [DotProfileSet], so the verdict is the game's own: unknown
-## keys (use [code]extra:[/code]), wrong types, out of range, NaN and infinity, a missing or
-## cyclic [code]extends[/code], a malformed yml. On top of that: two files for one id,
-## [code].yaml[/code] files (never read), a folder profile with no file of its own, and child
-## folders with no schema. An entry may add `"validator": Callable` (a [DotProfileSet] validator) for checks a schema cannot make.
-##
-## [b]Schemas[/b] live in code. Every registered global class whose script defines
-## [code]static func profile_schemas() -> Dictionary[/code] is a provider (dot-weapon, dot-npc and
-## a game's own, once the project is imported), and [code]--schema <script>[/code] adds one more.
-## The Dictionary maps a kind to a field Array, or to
-## [code]{"schema": [...], "children": {name: [...]}}[/code]. Two providers for one kind, or a
-## malformed return, is an error. A kind with no schema is an error unless [code]--skip-unknown[/code]; a folder named after an addon under the project's [code]addons/[/code] is that addon's config, not a kind, and is skipped.
-##
-## Prints one [code]path: message[/code] line per problem and [code]PROFILE_CHECK files N errors M[/code];
-## exits 1 on any error. No [code]class_name[/code]: it adds no global.
+## Checks every profile yml under a repository's cfg/ against its schema, with no game running, and exits 1 on any error.
+## Run: godot --headless --path . --script addons/dot_profile/tools/profile_check.gd -- <dir>... [--schema <script>]... [--skip-unknown]
+## Loads every profile through [DotProfileSet] (the game's own verdict); schemas come from global classes with [code]static func profile_schemas()[/code] or [code]--schema[/code]; no [code]class_name[/code].
 
 var _providers: Dictionary = {}
 var _seen_scripts := {}

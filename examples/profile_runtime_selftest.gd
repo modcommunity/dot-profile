@@ -1,10 +1,7 @@
 extends Node
 
 ## Exercises [DotProfileRuntime]: validated, permission-gated, replicated runtime profile edits.
-##
-## [codeblock]
-## godot --headless --path . res://examples/profile_runtime_selftest.tscn
-## [/codeblock]
+## Run: godot --headless --path . res://examples/profile_runtime_selftest.tscn
 
 const SECTIONS := 10
 const CHECKS := 85
@@ -291,7 +288,7 @@ func _test_nested() -> void:
 	_check(w["ss"].load_profile("boss").value == w["ss"].load_profile("boss").value, "the loaded profile is cached between edits")
 
 
-# --- Harness -----------------------------------------------------------------
+# Harness
 
 func _test_add_delete() -> void:
 	_section("profiles are added, replicated, saved, deleted and brought back")

@@ -1,13 +1,9 @@
 class_name DotProfileRuntime
 extends RefCounted
 
-## Live editing of profiles: a permission-gated, validated runtime layer that replicates.
-##
-## The server owns it: [method handle_request] checks the actor, validates against the set's
-## schema, writes the layer on [DotProfileSet], bumps the profile's revision, logs the change
-## and hands the changed row to [member broadcast]. A client feeds rows to [method apply_row],
-## which takes only newer revisions. Transport-agnostic: the host moves the dictionaries.
-## See docs/profiles.md.
+## Live editing of profiles: a permission-gated, validated runtime layer that replicates. See docs/profiles.md.
+## The server checks the actor, validates against the schema, writes the layer on [DotProfileSet], bumps the revision and
+## hands the row to [member broadcast]; a client feeds rows to [method apply_row], which takes only newer revisions.
 
 const CHANNEL := "profile"
 const OP_SET := "set"
@@ -159,7 +155,7 @@ func describe_lines() -> PackedStringArray:
 	return out
 
 
-# --- Internals -------------------------------------------------------------
+# Internals
 
 func _key(kind: String, id: String) -> String:
 	return kind + "/" + id

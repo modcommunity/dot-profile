@@ -1,10 +1,7 @@
 extends Node
 
 ## Exercises [DotProfileSet] and [DotProfile]: schema, extends, tiers, overrides, folders.
-##
-## [codeblock]
-## godot --headless --path . res://examples/profile_selftest.tscn
-## [/codeblock]
+## Run: godot --headless --path . res://examples/profile_selftest.tscn
 
 const SECTIONS := 11
 const CHECKS := 90
