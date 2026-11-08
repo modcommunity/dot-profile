@@ -34,6 +34,8 @@ static func schema() -> Array:
 		f.call("drop", "dict", {}),
 		f.call("open_seconds", "float", 0.0, {"min": 0.0, "max": 30.0}),
 		f.call("lifetime", "float", 0.0, {"min": 0.0, "max": 3600.0}),
+		f.call("carryable", "bool", true),
+		f.call("deploy_seconds", "float", 0.0, {"min": 0.0, "max": 60.0}),
 		f.call("params", "dict", {}),
 		f.call("outcomes", "list", [], {"items": "dict"}),
 		f.call("sounds", "dict", {}),

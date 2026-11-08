@@ -3,7 +3,7 @@ extends Node
 ## The `box` kind: defaults, round trip through yml, validation of the dict keys, per-server override, live edit with rollback.
 
 const SECTIONS := 5
-const CHECKS := 28
+const CHECKS := 33
 const BASE := "user://box_profile_selftest"
 
 var _passed := 0
@@ -131,6 +131,10 @@ func _live_edit() -> void:
 	var bad2 := rt.handle_request("admin", DotProfileRuntime.make_request("set", "box", "live", "duration", {"mode": "seconds", "min": 5, "max": 2}))
 	_ck(not bad2.ok, "a reversed duration is refused")
 	_ck(rt.handle_request("admin", DotProfileRuntime.make_request("set", "box", "live", "drop.brute", 9)).ok, "a drop weight is editable")
+	var cp: DotProfile = DotBoxProfiles.load_box(s, "live").value
+	_ck(cp.get_value("carryable") == true and cp.get_value("deploy_seconds") == 0.0, "carry and deploy default to the game's own")
+	_ck(rt.handle_request("admin", DotProfileRuntime.make_request("set", "box", "live", "deploy_seconds", 2.5)).ok and rt.handle_request("admin", DotProfileRuntime.make_request("set", "box", "live", "carryable", false)).ok, "carry and deploy are editable live")
+	_ck(not rt.handle_request("admin", DotProfileRuntime.make_request("set", "box", "live", "deploy_seconds", -1.0)).ok, "a negative deploy time is refused")
 
 
 func _check_tool() -> void:
@@ -138,5 +142,5 @@ func _check_tool() -> void:
 	var ps := DotBoxProfiles.profile_schemas()
 	_ck(ps.has("box") and (ps["box"]["schema"] as Array).size() == DotBoxProfiles.schema().size(), "profile_schemas names the kind")
 	var names := (DotBoxProfiles.schema() as Array).map(func(f: Dictionary) -> String: return f["name"])
-	for k in ["title", "colour", "drop", "duration", "outcomes", "sounds", "open_seconds", "lifetime", "enabled"]:
+	for k in ["title", "colour", "drop", "duration", "outcomes", "sounds", "open_seconds", "lifetime", "enabled", "carryable", "deploy_seconds"]:
 		_ck(k in names, "schema has " + k)
