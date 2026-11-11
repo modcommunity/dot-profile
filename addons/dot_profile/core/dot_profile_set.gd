@@ -375,12 +375,17 @@ func _tier_dirs(rel: String = "") -> Dictionary:
 		use_game = false
 	# [tier, dir under a root, used, name, singular dir that supersedes it or ""], weakest first: an old
 	# plural dir or the pre-mirror cfg/server/<kind>/ comes before the singular one that wins over it.
-	var steps: Array = [
-		[TIER_ADDON, "addons", use_addon, addon_name, "addon"], [TIER_ADDON, "addon", use_addon, addon_name, ""],
-		[TIER_GAME, "games", use_game, game, "game"], [TIER_GAME, "game", use_game, game, ""],
-		[TIER_SERVER, "server", true, "", "server-kind"],
-		[TIER_SERVER, "server/addons", use_addon, addon_name, "server/addon"], [TIER_SERVER, "server/addon", use_addon, addon_name, ""],
-		[TIER_SERVER, "server/games", use_game, game, "server/game"], [TIER_SERVER, "server/game", use_game, game, ""]]
+	# A renamed game's former ids (DotAddonConfig.register_former_game) are read under its own id.
+	var names: PackedStringArray = DotAddonConfig.game_names(game) if use_game else PackedStringArray()
+	var steps: Array = [[TIER_ADDON, "addons", use_addon, addon_name, "addon"], [TIER_ADDON, "addon", use_addon, addon_name, ""]]
+	for pair in [["games", "game"], ["game", ""]]:
+		for n in names:
+			steps.append([TIER_GAME, pair[0], true, n, pair[1]])
+	steps.append([TIER_SERVER, "server", true, "", "server-kind"])
+	steps.append_array([[TIER_SERVER, "server/addons", use_addon, addon_name, "server/addon"], [TIER_SERVER, "server/addon", use_addon, addon_name, ""]])
+	for pair in [["server/games", "server/game"], ["server/game", ""]]:
+		for n in names:
+			steps.append([TIER_SERVER, pair[0], true, n, pair[1]])
 	for step in steps:
 		if not step[2]:
 			continue

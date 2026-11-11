@@ -3,8 +3,8 @@ extends Node
 ## Exercises [DotProfileSet] and [DotProfile]: schema, extends, tiers, overrides, folders.
 ## Run: godot --headless --path . res://examples/profile_selftest.tscn
 
-const SECTIONS := 11
-const CHECKS := 90
+const SECTIONS := 12
+const CHECKS := 93
 const BASE := "user://profile_selftest"
 
 var _passed := 0
@@ -25,6 +25,7 @@ func _run() -> void:
 	_test_merge()
 	_test_tiers()
 	_test_plural_legacy()
+	_test_former_game()
 	_test_overrides()
 	_test_extra()
 	_test_listing()
@@ -202,6 +203,20 @@ func _test_tiers() -> void:
 	bad.clear_cache()
 	_check(bad.load_profile("orc").value.get_value("health") != 888, "a game name with / is skipped")
 	_check(_mk("npc").game == "mygame" and DotProfileSet.create("dot-npc", "", "npc").has_id("orc") == false, "no game id skips the game tier")
+
+
+func _test_former_game() -> void:
+	_section("A renamed game's former id is read under its own")
+	_clean()
+	DotAddonConfig.register_former_game("mygame", PackedStringArray(["oldgame"]))
+	_w("game/oldgame/npc/orc.yml", "health: 120\nname: OldOrc\n")
+	_check(_mk().load_profile("orc").value.get_value("health") == 120, "cfg/game/<former>/ still loads")
+	_gamef("npc/orc.yml", "health: 130\n")
+	var r: DotProfile = _mk().load_profile("orc").value
+	_check(r.get_value("health") == 130 and r.get_value("name") == "OldOrc", "the new id wins; the former merges under it")
+	_w("server/game/oldgame/npc/orc.yml", "health: 140\n")
+	_check(_mk().load_profile("orc").value.get_value("health") == 140, "cfg/server/game/<former>/ is the operator tier")
+	DotAddonConfig.former_games.erase("mygame")
 
 
 func _test_plural_legacy() -> void:

@@ -17,6 +17,8 @@ The old `cfg/server/<kind>/<id>.yml` is still read, under the mirrored files, th
 
 The directory names are singular (`addon/`, `game/`, `server/addon/`, `server/game/`). The plural names (`addons/`, `games/`, `server/addons/`, `server/games/`) are read the same way, through `DotCfgLegacy` with one WARN per file until 2026-12-31, and the singular file wins whole. `examples/profile_selftest` checks each.
 
+A renamed game's former ids (`DotAddonConfig.register_former_game`, dot-core 31) are read too: `cfg/game/<old>/` and `cfg/server/game/<old>/` come before the new id's directory, so an operator's file under the new name wins.
+
 A profile may be a folder: `<kind>/<id>/<id>.yml` (or `profile.yml`) with child sets beside it, such as `weapon/pistol/upgrades/scope.yml`. Children are loaded lazily, each set with its own schema and its own `extends`, and see the same three tiers.
 
 ## Use
